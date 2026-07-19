@@ -1,6 +1,6 @@
 import './style.css';
 import { actionForKey } from './input.js';
-import { createAudioContext, resumeIfSuspended } from './audio.js';
+import { createAudioContext, resumeIfSuspended, unlockAudioContext } from './audio.js';
 import { createPieceColors } from './pieces.js';
 import { MusicEngine } from './music.js';
 import { getClearIntensity, getDropInterval, getLockDelay } from './difficulty.js';
@@ -42,6 +42,7 @@ const scoreForm = document.querySelector('#scoreForm');
 const playerNameInput = document.querySelector('#playerName');
 const scoreStatus = document.querySelector('#scoreStatus');
 const leaderboardList = document.querySelector('#leaderboardList');
+const buildVersion = document.querySelector('#buildVersion');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -55,6 +56,8 @@ let tutorialOpener = null, autoPaused = false;
 let gestureStart = null;
 let scoreSubmitted = false;
 let leaderboardApiPromise;
+
+buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 
 function getLeaderboardApi() {
   leaderboardApiPromise ||= import('./leaderboard.js');
@@ -449,6 +452,14 @@ function ensureAudio() {
   return audio;
 }
 
+function unlockAudioSession() {
+  const context = ensureAudio();
+  if (!context) return;
+  unlockAudioContext(context).then(unlocked => {
+    if (unlocked) startMusic();
+  });
+}
+
 function startMusic() {
   if (muted || !running || paused) return;
   const context = ensureAudio();
@@ -564,7 +575,7 @@ function act(action) {
 }
 
 document.querySelector('#startButton').addEventListener('click',()=>{
-  ensureAudio();
+  unlockAudioSession();
   document.body.classList.add('playing');
   if (!tutorialSeen()) openTutorial(true);
   else reset();
@@ -601,10 +612,10 @@ document.querySelector('#soundButton').addEventListener('click',e=>{
   e.currentTarget.textContent=muted?'×':'♪';
   e.currentTarget.setAttribute('aria-label',muted?'소리 켜기':'소리 끄기');
   if (muted) stopMusic();
-  else { ensureAudio(); tone(440,.05); startMusic(); }
+  else { unlockAudioSession(); tone(440,.05); }
 });
 document.querySelector('#helpButton').addEventListener('click',()=>openTutorial(false));
-tutorialClose.addEventListener('click',()=>{ ensureAudio(); closeTutorial(); });
+tutorialClose.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial(); });
 gameShell.addEventListener('contextmenu',e=>e.preventDefault());
 window.addEventListener('keydown',e=>{
   if (!tutorial.hidden) { if (e.key === 'Escape') { e.preventDefault(); closeTutorial(); } return; }
@@ -621,7 +632,7 @@ document.addEventListener('visibilitychange',()=>{
 
 canvas.addEventListener('pointerdown',e=>{
   if (!['touch','pen'].includes(e.pointerType) || !running || paused) return;
-  ensureAudio();
+  unlockAudioSession();
   const rect=canvas.getBoundingClientRect();
   gestureStart = {
     x:e.clientX, y:e.clientY, time:performance.now(), id:e.pointerId,
