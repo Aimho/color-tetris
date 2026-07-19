@@ -483,7 +483,7 @@ function updateReactor() {
   const renderKey = `${activeOverdrive}:${value}:${disabled}`;
   if (renderKey === reactorRenderKey) return;
   reactorRenderKey = renderKey;
-  reactorFill.style.width = `${activeOverdrive ? 100 : reactorCharge}%`;
+  reactorFill.style.transform = `scaleX(${(activeOverdrive ? 100 : reactorCharge) / 100})`;
   reactorValue.textContent = activeOverdrive ? `${value}s` : `${reactorCharge}%`;
   reactorButton.disabled = disabled;
   reactorButton.classList.toggle('ready', reactorCharge >= 100 && !activeOverdrive);

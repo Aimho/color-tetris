@@ -180,7 +180,17 @@ button:active { transform: scale(.96); }
 .game-overlay button { min-width: 150px; min-height: 48px; border: 0; border-radius: var(--r-sm); background: var(--acid); color: oklch(20% .04 112); font-weight: 700; box-shadow: 0 5px 0 oklch(52% .12 112); transition: transform 120ms ease-out; }
 .game-overlay small { margin-top: 20px; color: var(--muted); font-size: 7px; }
 .end-actions { display: flex; justify-content: center; gap: 8px; width: min(100%, 310px); }
-.end-actions button { flex: 1; min-width: 0; }
+.end-actions button {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.end-actions button span { flex: 0 0 auto; font-size: .88em; line-height: 1; }
+.end-actions button[hidden] { display: none; }
 #shareButton { color: var(--ink); background: var(--surface-raised); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 5px 0 #050606; }
 #dailyButton { color: var(--ink); background: var(--orange); box-shadow: 0 5px 0 oklch(48% .14 42); }
 .meta-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: min(100%, 310px); margin: -8px 0 16px; }
@@ -188,17 +198,25 @@ button:active { transform: scale(.96); }
 .meta-panel p { grid-column: 1 / -1; margin: 2px 0 0; color: var(--acid); font-size: 8px; letter-spacing: .04em; }
 .game-overlay.game-over .meta-panel { display: none; }
 
-.reactor { position: absolute; z-index: 2; left: 8px; right: 8px; bottom: 7px; height: 24px; padding: 4px 7px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 7px; border: 0; border-radius: 3px; color: var(--muted); background: rgba(7,9,9,.82); font: 700 7px "Chivo Mono", monospace; transition: filter 150ms, transform 150ms; }
-.reactor i { height: 4px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.1); }
-.reactor b { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--acid); transition: width 220ms ease-out; }
-.reactor strong { min-width: 25px; color: var(--ink); font-size: 7px; text-align: right; }
-.reactor.ready { color: var(--acid); filter: drop-shadow(0 0 7px var(--acid)); animation: reactor-ready 700ms alternate infinite; }
-.reactor.active { color: var(--ink); background: color-mix(in oklab, var(--orange) 28%, rgba(7,9,9,.9)); }
+.reactor {
+  position: absolute; z-index: 2; left: 8px; right: 8px; bottom: 7px;
+  height: 40px; padding: 6px; display: grid; grid-template: auto 5px / 1fr auto;
+  align-items: center; column-gap: 5px; row-gap: 4px; border: 0; border-radius: var(--r-sm);
+  color: var(--muted); background: rgba(255,255,255,.035);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.055);
+  font: 700 6px "Chivo Mono", monospace; letter-spacing: .12em;
+  transition: transform 120ms ease-out, background-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+.reactor > span { align-self: start; text-align: left; }
+.reactor i { grid-column: 1 / -1; height: 3px; overflow: hidden; border-radius: var(--r-pill); background: rgba(255,255,255,.08); }
+.reactor b { display: block; width: 100%; height: 100%; transform: scaleX(0); transform-origin: left; border-radius: inherit; background: var(--acid); transition: transform 220ms cubic-bezier(.16,1,.3,1); }
+.reactor strong { min-width: 25px; align-self: start; color: var(--ink); font-size: 10px; line-height: 1; letter-spacing: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.reactor.ready { color: var(--acid); background: color-mix(in oklab, var(--acid) 8%, rgba(255,255,255,.035)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--acid) 40%, transparent), 0 0 12px color-mix(in oklab, var(--acid) 16%, transparent); }
+.reactor.active { color: var(--ink); background: color-mix(in oklab, var(--orange) 16%, rgba(255,255,255,.035)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--orange) 38%, transparent); }
 .board-frame.overdrive { box-shadow: 0 0 28px color-mix(in oklab, var(--orange) 55%, transparent), inset 0 0 0 2px var(--acid); }
-@keyframes reactor-ready { to { filter: drop-shadow(0 0 13px var(--acid)); } }
 body[data-theme="ember"] { --acid: oklch(79% .18 55); --orange: oklch(69% .22 25); }
 body[data-theme="aurora"] { --acid: oklch(82% .16 180); --orange: oklch(72% .19 315); }
-body.playing .reactor { position: fixed; z-index: 9; top: max(6px, env(safe-area-inset-top)); bottom: auto; left: 156px; right: 90px; height: 40px; }
+body.playing .reactor { position: fixed; z-index: 9; top: max(4px, env(safe-area-inset-top)); bottom: auto; left: 156px; right: 90px; height: 43px; }
 
 @media (min-width: 620px) {
   body.playing .reactor { left: 50%; right: auto; width: 190px; transform: translateX(-50%); }
@@ -463,10 +481,12 @@ body.playing footer, body.playing .touch-controls { display: none; }
 }
 
 @media (max-width: 350px) {
-  body.playing .reactor { grid-template-columns: 1fr auto; left: 156px; right: 88px; gap: 4px; }
-  body.playing .reactor > span { display: none; }
+  body.playing .reactor { left: 156px; right: 88px; column-gap: 3px; }
+  body.playing .reactor > span { font-size: 5px; letter-spacing: .06em; }
   footer { font-size: 6px; letter-spacing: .08em; }
   footer span { white-space: nowrap; }
+  .end-actions button { gap: 4px; font-size: 11px; }
+  .end-actions button span { font-size: 9px; }
 }
 
 @media (max-height: 600px) {
