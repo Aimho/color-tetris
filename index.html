@@ -34,15 +34,28 @@
         </aside>
 
         <div class="board-frame" id="boardFrame">
+          <div class="impact-flash" id="impactFlash" aria-hidden="true"></div>
           <div class="chain-callout" id="chainCallout" aria-live="polite"></div>
-          <div class="gesture-hint" id="gestureHint" aria-live="polite">탭 회전 · 스와이프 이동</div>
-          <canvas id="gameCanvas" width="320" height="640" aria-label="Color Tetrix 게임 보드"></canvas>
+          <div class="level-callout" id="levelCallout" aria-live="polite"></div>
+          <div class="gesture-hint" id="gestureHint" aria-live="polite">탭 회전 · 드래그 이동</div>
+          <canvas id="gameCanvas" width="340" height="680" aria-label="Color Tetrix 게임 보드"></canvas>
           <div class="game-overlay visible" id="overlay">
             <p class="overlay-kicker">COLOR × SHAPE</p>
             <h2 id="overlayTitle">연결은<br />낙하한 뒤 시작된다</h2>
             <p id="overlayCopy">같은 색 6칸을 이어 지우고, 빈틈의 낙하로 연쇄를 만드세요.</p>
+            <section class="score-record" id="scoreRecord" hidden>
+              <p>최종 점수를 기록하시겠습니까?</p>
+              <form id="scoreForm">
+                <input id="playerName" name="playerName" maxlength="12" autocomplete="nickname" placeholder="이름 입력" aria-label="기록할 이름" required />
+                <button type="submit">RECORD</button>
+              </form>
+              <p class="score-status" id="scoreStatus" aria-live="polite"></p>
+              <div class="leaderboard">
+                <h3>TOP 50</h3>
+                <ol id="leaderboardList"></ol>
+              </div>
+            </section>
             <button id="startButton">PLAY <span>▶</span></button>
-            <small>← → 이동 · ↑ 회전 · SPACE 드롭</small>
           </div>
         </div>
 
@@ -72,8 +85,8 @@
         <h2 id="tutorialTitle">손끝으로<br />반응로를 설계하세요</h2>
         <div class="tutorial-mobile" id="mobileTutorial">
           <p><strong>탭</strong><span>조각 회전</span></p>
-          <p><strong>↔</strong><span>좌우 스와이프 · 이동</span></p>
-          <p><strong>↓</strong><span>아래 스와이프 · 소프트 드롭</span></p>
+          <p><strong>↔</strong><span>좌우 드래그 · 실시간 이동</span></p>
+          <p><strong>↓</strong><span>아래 드래그 · 소프트 드롭</span></p>
           <p><strong>⇣</strong><span>빠른 아래 플릭 · 하드 드롭</span></p>
           <p><strong>↑</strong><span>위 스와이프 · HOLD</span></p>
         </div>
