@@ -4,6 +4,10 @@ export const EVENT_PIECE_CHANCE = 0.06;
 export const EVENT_PIECE_PITY = 24;
 export const EVENT_DIRECTIONS = ['up', 'down', 'left', 'right'];
 
+export function rotateSquareCells(cells) {
+  return cells.map(cell => ({ ...cell, x: 2 - cell.y, y: cell.x - 1 }));
+}
+
 export function shouldCreateMonoPiece(piecesSinceMono, random = Math.random) {
   return piecesSinceMono >= MONO_PIECE_PITY || random() < MONO_PIECE_CHANCE;
 }

@@ -13,3 +13,7 @@ const KEY_ACTIONS = {
 export function actionForKey({ code, key }) {
   return CODE_ACTIONS[code] ?? KEY_ACTIONS[key?.toLowerCase?.()] ?? null;
 }
+
+export function isBottomCellTouch(clientY, rect, rows) {
+  return clientY >= rect.bottom - rect.height / rows && clientY <= rect.bottom;
+}

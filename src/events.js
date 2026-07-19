@@ -17,12 +17,18 @@ export function resolveArrowEffects(initialKeys, board, eventBoard) {
     const direction = eventBoard[y]?.[x];
     if (!direction || !VECTORS[direction]) continue;
     activated.add(key);
-    const [dx, dy] = VECTORS[direction];
     const cells = [];
-    for (let nx = x + dx, ny = y + dy; nx >= 0 && nx < cols && ny >= 0 && ny < rows; nx += dx, ny += dy) {
-      if (board[ny][nx] === null) continue;
+    const [dx, dy] = VECTORS[direction];
+    const targetX = x + dx;
+    const targetY = y + dy;
+    const line = dx === 0
+      ? Array.from({length:cols}, (_, nx) => [nx, targetY])
+      : Array.from({length:rows}, (_, ny) => [targetX, ny]);
+    for (const [nx, ny] of line) {
+      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
       const target = `${nx},${ny}`;
       cells.push(target);
+      if (board[ny][nx] === null) continue;
       if (!removed.has(target)) {
         removed.add(target);
         pending.push({key:target, depth:depth + 1});

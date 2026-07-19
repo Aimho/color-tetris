@@ -1,7 +1,7 @@
 import './style.css';
-import { actionForKey } from './input.js';
+import { actionForKey, isBottomCellTouch } from './input.js';
 import { configureAudioSession, createAudioContext, primeLegacyMediaChannel, resumeIfSuspended, unlockAudioContext } from './audio.js';
-import { createPieceColors, createPieceEvent } from './pieces.js';
+import { createPieceColors, createPieceEvent, rotateSquareCells } from './pieces.js';
 import { MusicEngine } from './music.js';
 import { getClearIntensity, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
 import { resolveArrowEffects } from './events.js';
@@ -55,7 +55,6 @@ const reactorValue = document.querySelector('#reactorValue');
 const paceButton = document.querySelector('#paceButton');
 const themeButton = document.querySelector('#themeButton');
 const weeklyProgress = document.querySelector('#weeklyProgress');
-const installButton = document.querySelector('#installButton');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -172,8 +171,10 @@ function move(dx, dy) {
 }
 
 function rotate() {
-  if (!running || paused || resolving || active.type === 'O') return;
-  const rotated = {...active, cells: active.cells.map(c => ({...c, x: 2 - c.y, y: c.x}))};
+  if (!running || paused || resolving) return;
+  const rotated = {...active, cells: active.type === 'O'
+    ? rotateSquareCells(active.cells)
+    : active.cells.map(c => ({...c, x: 2 - c.y, y: c.x}))};
   for (const kick of [0,-1,1,-2,2]) {
     const candidate = {...rotated, x: rotated.x + kick};
     if (!collides(candidate)) { active = candidate; tone(480, .035); return; }
@@ -365,10 +366,10 @@ function drawArrowBeams() {
   for (const beam of arrowBeams) {
     const progress = Math.max(0, Math.min(1, (now - beam.start) / beam.duration));
     if (progress <= 0 || !beam.cells.length) continue;
-    const [ox,oy] = beam.origin.split(',').map(Number);
     const visibleCount = Math.max(1, Math.ceil(beam.cells.length * progress));
+    const [sx,sy] = beam.cells[0].split(',').map(Number);
     const [tx,ty] = beam.cells[visibleCount - 1].split(',').map(Number);
-    const startX=(ox+.5)*CELL, startY=(oy+.5)*CELL, endX=(tx+.5)*CELL, endY=(ty+.5)*CELL;
+    const startX=(sx+.5)*CELL, startY=(sy+.5)*CELL, endX=(tx+.5)*CELL, endY=(ty+.5)*CELL;
     ctx.save();
     ctx.lineCap='round';
     ctx.shadowColor='#ff6542'; ctx.shadowBlur=18;
@@ -868,6 +869,9 @@ canvas.addEventListener('pointerdown',e=>{
   if (!['touch','pen'].includes(e.pointerType) || !running || paused) return;
   unlockAudioSession();
   const rect=canvas.getBoundingClientRect();
+  if (isBottomCellTouch(e.clientY, rect, ROWS)) {
+    act('drop'); showGestureHint('하드 드롭'); e.preventDefault(); return;
+  }
   gestureStart = {
     x:e.clientX, y:e.clientY, time:performance.now(), id:e.pointerId,
     axis:null, appliedX:0, appliedY:0, moved:false,
@@ -914,7 +918,9 @@ canvas.addEventListener('pointerup',e=>{
   else if (dy > 24 && moved) showGestureHint('소프트 드롭');
 });
 canvas.addEventListener('pointercancel',()=>{ gestureStart=null; });
+document.addEventListener('gesturestart', event => event.preventDefault(), {passive:false});
+document.addEventListener('gesturechange', event => event.preventDefault(), {passive:false});
 
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
 draw(); drawRacks(); updateStats(); updateReactor(); renderMeta(); refreshWeekly();
-setupPwa(installButton);
+setupPwa();
