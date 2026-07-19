@@ -4,7 +4,7 @@ import { configureAudioSession, createAudioContext, primeLegacyMediaChannel, res
 import { createPieceColors, createPieceEvent } from './pieces.js';
 import { MusicEngine } from './music.js';
 import { getClearIntensity, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
-import { expandArrowClears } from './events.js';
+import { resolveArrowEffects } from './events.js';
 
 const COLS = 10;
 const ROWS = 20;
@@ -53,6 +53,7 @@ let lastTime = 0, dropTimer = 0, resolving = false, muted = false;
 let shapeBag = [], colorBag = [];
 let runId = 0, lockTimer = 0;
 let piecesSinceMono = 0, piecesSinceEvent = 0, particles = [];
+let arrowBeams = [];
 let tutorialStartsGame = false, piecesSpawned = 0, hintTimer;
 let tutorialOpener = null, autoPaused = false;
 let gestureStart = null;
@@ -124,7 +125,7 @@ function reset() {
   eventBoard = Array.from({length: ROWS}, () => Array(COLS).fill(null));
   queue = []; hold = null; holdUsed = false; score = 0; level = 1; lines = 0;
   shapeBag = []; colorBag = []; resolving = false; running = true; paused = false; piecesSpawned = 0;
-  piecesSinceMono = 0; piecesSinceEvent = 0; particles = [];
+  piecesSinceMono = 0; piecesSinceEvent = 0; particles = []; arrowBeams = [];
   refillQueue(); spawn(); updateStats();
   overlay.classList.remove('visible', 'game-over');
   scoreRecord.hidden = true;
@@ -192,14 +193,17 @@ async function resolveBoard() {
     if (!groups.length) break;
     chain++;
     const matched = new Set(groups.flat().map(([x,y]) => `${x},${y}`));
-    const removed = expandArrowClears(matched, board, eventBoard);
+    const arrowResult = resolveArrowEffects(matched, board, eventBoard);
+    const {removed, beams} = arrowResult;
+    const arrowRemoved = new Set(beams.flatMap(beam => beam.cells));
     chainEl.textContent = `×${chain}`;
-    await pause(180);
+    if (beams.length) await playArrowBeams(beams);
+    else await pause(180);
     await waitUntilResumed(resolvingRun);
     if (resolvingRun !== runId) return;
     for (const key of removed) {
       const [x,y] = key.split(',').map(Number);
-      createShards(x, y, board[y][x], chain, removed.size);
+      createShards(x, y, board[y][x], chain, removed.size, arrowRemoved.has(key) ? 1.5 : 1);
       board[y][x] = null;
       eventBoard[y][x] = null;
     }
@@ -298,7 +302,7 @@ function drawEventArrow(context, cx, cy, size, direction) {
   context.restore();
 }
 
-function createShards(x, y, colorIndex, chain, removedCount) {
+function createShards(x, y, colorIndex, chain, removedCount, force=1) {
   if (prefersReducedMotion) return;
   const intensity = getClearIntensity(removedCount);
   const available = Math.max(0, MAX_SHARDS - particles.length);
@@ -310,14 +314,52 @@ function createShards(x, y, colorIndex, chain, removedCount) {
       x: (x + .5) * CELL,
       y: (y + .5) * CELL,
       color: COLORS[colorIndex],
-      size: 4 + Math.random() * 7,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - .075 - chain * .006,
+      size: (4 + Math.random() * 7) * force,
+      vx: Math.cos(angle) * speed * force,
+      vy: (Math.sin(angle) * speed - .075 - chain * .006) * force,
       rotation: Math.random() * Math.PI * 2,
       spin: (Math.random() - .5) * .018,
       age: 0,
       life: 380 + Math.random() * 260,
     });
+  }
+}
+
+async function playArrowBeams(paths) {
+  const start = performance.now();
+  const duration = prefersReducedMotion ? 80 : 220;
+  arrowBeams = paths.map(path => ({...path, start:start + (prefersReducedMotion ? 0 : path.delay), duration}));
+  arrowBeamSound(paths.length);
+  const total = Math.max(...arrowBeams.map(beam => beam.start - start + beam.duration));
+  await pause(total);
+  arrowBeams = [];
+}
+
+function drawArrowBeams() {
+  const now = performance.now();
+  for (const beam of arrowBeams) {
+    const progress = Math.max(0, Math.min(1, (now - beam.start) / beam.duration));
+    if (progress <= 0 || !beam.cells.length) continue;
+    const [ox,oy] = beam.origin.split(',').map(Number);
+    const visibleCount = Math.max(1, Math.ceil(beam.cells.length * progress));
+    const [tx,ty] = beam.cells[visibleCount - 1].split(',').map(Number);
+    const startX=(ox+.5)*CELL, startY=(oy+.5)*CELL, endX=(tx+.5)*CELL, endY=(ty+.5)*CELL;
+    ctx.save();
+    ctx.lineCap='round';
+    ctx.shadowColor='#ff6542'; ctx.shadowBlur=18;
+    ctx.strokeStyle='rgba(255,101,66,.55)'; ctx.lineWidth=CELL*.34;
+    ctx.beginPath(); ctx.moveTo(startX,startY); ctx.lineTo(endX,endY); ctx.stroke();
+    ctx.shadowColor='#e9f65b'; ctx.shadowBlur=12;
+    ctx.strokeStyle='#e9f65b'; ctx.lineWidth=CELL*.1; ctx.stroke();
+    for (let i=0;i<visibleCount;i++) {
+      const [x,y]=beam.cells[i].split(',').map(Number);
+      const localProgress = Math.max(0, Math.min(1, progress * beam.cells.length - i));
+      ctx.globalAlpha=.25 + localProgress*.5;
+      ctx.fillStyle='#fffbd0';
+      const pulse=CELL*(.08*localProgress), pad=2-pulse;
+      roundRect(ctx,x*CELL+pad,y*CELL+pad,CELL-pad*2,CELL-pad*2,CELL*.16); ctx.fill();
+    }
+    ctx.restore();
   }
 }
 
@@ -389,6 +431,7 @@ function draw() {
     for (const c of active.cells) if(c.y+landingY>=0) drawCell(ctx,c.x+active.x,c.y+landingY,c.color,CELL,.18,c.event);
     for (const c of cellsOf(active)) if(c.y>=0) drawCell(ctx,c.x,c.y,c.color,CELL,1,c.event);
   }
+  drawArrowBeams();
   drawParticles();
 }
 
@@ -557,6 +600,23 @@ function shatterSound(chain, removedCount) {
   chime.connect(chimeGain).connect(context.destination);
   chime.start(now);
   chime.stop(now + .14);
+}
+
+function arrowBeamSound(beamCount) {
+  if (muted) return;
+  const context = ensureAudio();
+  if (!context) return;
+  const now = context.currentTime;
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = 'sawtooth';
+  oscillator.frequency.setValueAtTime(150, now);
+  oscillator.frequency.exponentialRampToValueAtTime(760 + Math.min(beamCount, 4) * 90, now + .19);
+  gain.gain.setValueAtTime(.065, now);
+  gain.gain.exponentialRampToValueAtTime(.001, now + .23);
+  oscillator.connect(gain).connect(context.destination);
+  oscillator.start(now);
+  oscillator.stop(now + .23);
 }
 
 function levelUpSound(nextLevel) {
