@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#090b0b" />
+    <meta name="description" content="색을 연결해 연쇄시키는 모바일 퍼즐 액션 게임" />
+    <title>Color Tetrix</title>
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="brand-row">
+        <div class="brand-lockup">
+          <p class="eyebrow">CHAIN REACTOR · 01</p>
+          <h1>COLOR<br /><span>TETRIX</span></h1>
+        </div>
+        <div class="header-actions">
+          <button class="icon-button" id="helpButton" aria-label="조작 방법 보기">?</button>
+          <button class="icon-button" id="soundButton" aria-label="소리 켜기 또는 끄기">♪</button>
+        </div>
+      </header>
+
+      <section class="score-strip" aria-label="게임 상태">
+        <div><span>SCORE</span><strong id="score">000000</strong></div>
+        <div><span>CHAIN</span><strong id="chain">—</strong></div>
+        <div><span>LEVEL</span><strong id="level">01</strong></div>
+      </section>
+
+      <section class="play-area">
+        <aside class="piece-rack hold-rack">
+          <span class="rack-label">HOLD</span>
+          <canvas id="holdCanvas" width="72" height="72" aria-label="보관 중인 조각"></canvas>
+          <small>SHIFT</small>
+        </aside>
+
+        <div class="board-frame" id="boardFrame">
+          <div class="chain-callout" id="chainCallout" aria-live="polite"></div>
+          <div class="gesture-hint" id="gestureHint" aria-live="polite">탭 회전 · 스와이프 이동</div>
+          <canvas id="gameCanvas" width="320" height="640" aria-label="Color Tetrix 게임 보드"></canvas>
+          <div class="game-overlay visible" id="overlay">
+            <p class="overlay-kicker">COLOR × SHAPE</p>
+            <h2 id="overlayTitle">연결은<br />낙하한 뒤 시작된다</h2>
+            <p id="overlayCopy">같은 색 6칸을 이어 지우고, 빈틈의 낙하로 연쇄를 만드세요.</p>
+            <button id="startButton">PLAY <span>▶</span></button>
+            <small>← → 이동 · ↑ 회전 · SPACE 드롭</small>
+          </div>
+        </div>
+
+        <aside class="piece-rack next-rack">
+          <span class="rack-label">NEXT</span>
+          <canvas id="nextCanvas" width="168" height="48" aria-label="다음 조각"></canvas>
+        </aside>
+      </section>
+
+      <section class="touch-controls" aria-label="터치 조작">
+        <div class="move-pad">
+          <button data-action="left" aria-label="왼쪽 이동">←</button>
+          <button data-action="down" aria-label="소프트 드롭">↓</button>
+          <button data-action="right" aria-label="오른쪽 이동">→</button>
+        </div>
+        <button class="hold-button" data-action="hold" aria-label="조각 보관">HOLD</button>
+        <button class="rotate-button" data-action="rotate" aria-label="조각 회전">↻</button>
+        <button class="drop-button" data-action="drop" aria-label="하드 드롭">DROP <span>↓</span></button>
+      </section>
+
+      <footer><span>CONNECT 6+</span><span>BUILD THE FALL</span></footer>
+    </main>
+
+    <section class="tutorial" id="tutorial" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle" hidden>
+      <div class="tutorial-sheet">
+        <p class="overlay-kicker">HOW TO CONTROL</p>
+        <h2 id="tutorialTitle">손끝으로<br />반응로를 설계하세요</h2>
+        <div class="tutorial-mobile" id="mobileTutorial">
+          <p><strong>탭</strong><span>조각 회전</span></p>
+          <p><strong>↔</strong><span>좌우 스와이프 · 이동</span></p>
+          <p><strong>↓</strong><span>아래 스와이프 · 소프트 드롭</span></p>
+          <p><strong>⇣</strong><span>빠른 아래 플릭 · 하드 드롭</span></p>
+          <p><strong>↑</strong><span>위 스와이프 · HOLD</span></p>
+        </div>
+        <div class="tutorial-desktop" id="desktopTutorial">
+          <p><kbd>←</kbd><kbd>→</kbd><span>이동</span></p>
+          <p><kbd>↓</kbd><span>소프트 드롭</span></p>
+          <p><kbd>↑</kbd><kbd>W</kbd><kbd>X</kbd><kbd>Z</kbd><span>회전</span></p>
+          <p><kbd>SPACE</kbd><span>하드 드롭</span></p>
+          <p><kbd>SHIFT</kbd><kbd>C</kbd><span>HOLD</span></p>
+        </div>
+        <button class="tutorial-close" id="tutorialClose">READY <span>▶</span></button>
+        <small>이 안내는 처음 한 번만 표시됩니다. ? 버튼에서 다시 볼 수 있어요.</small>
+      </div>
+    </section>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
