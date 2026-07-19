@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#090b0b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="description" content="색을 연결해 연쇄시키는 모바일 퍼즐 액션 게임" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Color Tetrix" />
@@ -19,6 +21,7 @@
     <meta name="twitter:image" content="https://color-tetrix-aimho.web.app/og-cover.png" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>Color Tetrix</title>
   </head>
   <body>
@@ -52,11 +55,19 @@
           <div class="chain-callout" id="chainCallout" aria-live="polite"></div>
           <div class="level-callout" id="levelCallout" aria-live="polite"></div>
           <div class="gesture-hint" id="gestureHint" aria-live="polite">탭 회전 · 드래그 이동</div>
+          <button class="reactor" id="reactorButton" type="button" aria-label="리액터 충전 0%" disabled>
+            <span>REACTOR</span><i><b id="reactorFill"></b></i><strong id="reactorValue">0%</strong>
+          </button>
           <canvas id="gameCanvas" width="340" height="680" aria-label="Color Tetrix 게임 보드"></canvas>
           <div class="game-overlay visible" id="overlay">
             <p class="overlay-kicker">COLOR × SHAPE</p>
             <h2 id="overlayTitle">연결은<br />낙하한 뒤 시작된다</h2>
             <p id="overlayCopy">같은 색 6칸을 이어 지우고, 빈틈의 낙하로 연쇄를 만드세요.</p>
+            <div class="meta-panel" id="metaPanel">
+              <button id="paceButton" type="button">PACE · STANDARD</button>
+              <button id="themeButton" type="button">THEME · REACTOR</button>
+              <p id="weeklyProgress">WEEKLY REACTOR · 불러오는 중…</p>
+            </div>
             <section class="score-record" id="scoreRecord" hidden>
               <p>최종 점수를 기록하시겠습니까?</p>
               <form id="scoreForm">
@@ -65,14 +76,16 @@
               </form>
               <p class="score-status" id="scoreStatus" aria-live="polite"></p>
               <div class="leaderboard">
-                <h3>TOP 50</h3>
+                <h3 id="leaderboardTitle">TOP 50</h3>
                 <ol id="leaderboardList"></ol>
               </div>
             </section>
             <div class="end-actions">
               <button id="startButton">PLAY <span>▶</span></button>
+              <button id="dailyButton">DAILY <span>◆</span></button>
               <button id="shareButton" hidden>SHARE <span>↗</span></button>
             </div>
+            <button class="install-button" id="installButton" hidden>INSTALL APP <span>↓</span></button>
           </div>
         </div>
 
@@ -115,6 +128,7 @@
           <p><kbd>SHIFT</kbd><kbd>C</kbd><span>HOLD</span></p>
         </div>
         <div class="event-guide"><strong>↑ ↓ ← →</strong><span>색 연결로 깨지면 화살표 방향을 관통 제거</span></div>
+        <div class="event-guide"><strong>REACTOR</strong><span>100% 충전 후 탭 또는 A키 · 6초간 낙하 정지, 점수 2배</span></div>
         <button class="tutorial-close" id="tutorialClose">READY <span>▶</span></button>
         <small>이 안내는 처음 한 번만 표시됩니다. ? 버튼에서 다시 볼 수 있어요.</small>
       </div>

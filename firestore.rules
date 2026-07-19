@@ -16,5 +16,28 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time;
       allow get, update, delete: if false;
     }
+    match /daily_scores/{scoreId} {
+      allow list: if request.query.limit != null && request.query.limit <= 50;
+      allow create: if request.resource.data.keys().hasOnly(['name', 'score', 'level', 'day', 'createdAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() >= 1 && request.resource.data.name.size() <= 12
+        && request.resource.data.score is int && request.resource.data.score >= 0 && request.resource.data.score <= 10000000
+        && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 20
+        && request.resource.data.day is string && request.resource.data.day.size() == 10
+        && request.resource.data.createdAt == request.time;
+      allow get, update, delete: if false;
+    }
+    match /runs/{runId} {
+      allow list: if request.query.limit != null && request.query.limit <= 500;
+      allow create: if request.resource.data.keys().hasOnly(['week', 'score', 'level', 'clears', 'maxChain', 'durationSec', 'mode', 'createdAt'])
+        && request.resource.data.week is string && request.resource.data.week.size() == 10
+        && request.resource.data.score is int && request.resource.data.score >= 0 && request.resource.data.score <= 10000000
+        && request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 20
+        && request.resource.data.clears is int && request.resource.data.clears >= 0 && request.resource.data.clears <= 5000
+        && request.resource.data.maxChain is int && request.resource.data.maxChain >= 0 && request.resource.data.maxChain <= 100
+        && request.resource.data.durationSec is int && request.resource.data.durationSec >= 1 && request.resource.data.durationSec <= 86400
+        && request.resource.data.mode in ['endless', 'daily']
+        && request.resource.data.createdAt == request.time;
+      allow get, update, delete: if false;
+    }
   }
 }

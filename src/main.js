@@ -5,6 +5,8 @@ import { createPieceColors, createPieceEvent } from './pieces.js';
 import { MusicEngine } from './music.js';
 import { getClearIntensity, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
 import { resolveArrowEffects } from './events.js';
+import { chargeReactor, createSeededRandom, finishRun, getKstDay, getKstWeek, getPace, OVERDRIVE_MS, readProfile, unlockedThemes } from './progression.js';
+import { setupPwa } from './pwa.js';
 
 const COLS = 10;
 const ROWS = 20;
@@ -43,8 +45,17 @@ const scoreForm = document.querySelector('#scoreForm');
 const playerNameInput = document.querySelector('#playerName');
 const scoreStatus = document.querySelector('#scoreStatus');
 const leaderboardList = document.querySelector('#leaderboardList');
+const leaderboardTitle = document.querySelector('#leaderboardTitle');
 const buildVersion = document.querySelector('#buildVersion');
 const shareButton = document.querySelector('#shareButton');
+const dailyButton = document.querySelector('#dailyButton');
+const reactorButton = document.querySelector('#reactorButton');
+const reactorFill = document.querySelector('#reactorFill');
+const reactorValue = document.querySelector('#reactorValue');
+const paceButton = document.querySelector('#paceButton');
+const themeButton = document.querySelector('#themeButton');
+const weeklyProgress = document.querySelector('#weeklyProgress');
+const installButton = document.querySelector('#installButton');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -59,6 +70,10 @@ let tutorialOpener = null, autoPaused = false;
 let gestureStart = null;
 let scoreSubmitted = false;
 let leaderboardApiPromise;
+let randomSource = Math.random, gameMode = 'endless', dailyDay = '';
+let reactorCharge = 0, overdriveUntil = 0, maxChain = 0, runStartedAt = 0;
+let profile = readProfile(), pace = getPace(profile);
+let reactorRenderKey = '';
 
 buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 
@@ -70,7 +85,7 @@ function getLeaderboardApi() {
 function shuffled(values) {
   const a = [...values];
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(randomSource() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
@@ -84,14 +99,14 @@ function takeShape() {
 function takeColors() {
   if (colorBag.length < 4) colorBag.push(...shuffled([0,0,1,1,2,2,3,3]));
   const seed = [colorBag.pop(), colorBag.pop(), colorBag.pop(), colorBag.pop()];
-  if (new Set(seed).size === 1) seed[3] = (seed[3] + 1 + Math.floor(Math.random() * 3)) % 4;
+  if (new Set(seed).size === 1) seed[3] = (seed[3] + 1 + Math.floor(randomSource() * 3)) % 4;
   return shuffled(seed);
 }
 
 function makePiece() {
   const type = takeShape();
-  const result = createPieceColors(COLORS.length, piecesSinceMono, takeColors);
-  const eventResult = createPieceEvent(piecesSinceEvent, SHAPES[type].length);
+  const result = createPieceColors(COLORS.length, piecesSinceMono, takeColors, randomSource);
+  const eventResult = createPieceEvent(piecesSinceEvent, SHAPES[type].length, randomSource);
   piecesSinceMono = result.isMono ? 0 : piecesSinceMono + 1;
   piecesSinceEvent = eventResult.nextCount;
   const colors = result.colors;
@@ -118,22 +133,28 @@ function spawn() {
   if (collides(active)) endGame();
 }
 
-function reset() {
+function reset(mode = gameMode) {
   runId++;
+  gameMode = mode;
+  dailyDay = mode === 'daily' ? getKstDay() : '';
+  randomSource = mode === 'daily' ? createSeededRandom(`color-tetrix:${dailyDay}:v1`) : Math.random;
   document.body.classList.add('playing');
   board = Array.from({length: ROWS}, () => Array(COLS).fill(null));
   eventBoard = Array.from({length: ROWS}, () => Array(COLS).fill(null));
   queue = []; hold = null; holdUsed = false; score = 0; level = 1; lines = 0;
   shapeBag = []; colorBag = []; resolving = false; running = true; paused = false; piecesSpawned = 0;
   piecesSinceMono = 0; piecesSinceEvent = 0; particles = []; arrowBeams = [];
+  reactorCharge = 0; overdriveUntil = 0; maxChain = 0; runStartedAt = Date.now();
   refillQueue(); spawn(); updateStats();
   overlay.classList.remove('visible', 'game-over');
   scoreRecord.hidden = true;
   scoreSubmitted = false;
   scoreForm.querySelector('button').disabled = false;
   shareButton.hidden = true;
+  dailyButton.hidden = true;
   lastTime = performance.now(); dropTimer = 0; lockTimer = 0;
   startMusic();
+  updateReactor();
   requestAnimationFrame(loop);
 }
 
@@ -192,6 +213,7 @@ async function resolveBoard() {
     const groups = findGroups();
     if (!groups.length) break;
     chain++;
+    maxChain = Math.max(maxChain, chain);
     const matched = new Set(groups.flat().map(([x,y]) => `${x},${y}`));
     const arrowResult = resolveArrowEffects(matched, board, eventBoard);
     const {removed, beams} = arrowResult;
@@ -207,8 +229,11 @@ async function resolveBoard() {
       board[y][x] = null;
       eventBoard[y][x] = null;
     }
-    score += Math.round(removed.size * 10 * [1,1.5,2.2,3.2,4.5][Math.min(chain - 1, 4)]);
+    const overdriveMultiplier = performance.now() < overdriveUntil ? 2 : 1;
+    score += Math.round(removed.size * 10 * [1,1.5,2.2,3.2,4.5][Math.min(chain - 1, 4)] * overdriveMultiplier);
     lines += removed.size;
+    reactorCharge = chargeReactor(reactorCharge, removed.size, chain);
+    updateReactor();
     const previousLevel = level;
     level = getLevelForClears(lines);
     music?.setLevel(level);
@@ -450,6 +475,56 @@ function drawRacks() {
 }
 
 function updateStats() { scoreEl.textContent=String(score).padStart(6,'0'); levelEl.textContent=String(level).padStart(2,'0'); }
+function updateReactor() {
+  const activeOverdrive = performance.now() < overdriveUntil;
+  const value = activeOverdrive ? Math.max(0, Math.ceil((overdriveUntil - performance.now()) / 1000)) : reactorCharge;
+  const disabled = !running || resolving || activeOverdrive || reactorCharge < 100;
+  const renderKey = `${activeOverdrive}:${value}:${disabled}`;
+  if (renderKey === reactorRenderKey) return;
+  reactorRenderKey = renderKey;
+  reactorFill.style.width = `${activeOverdrive ? 100 : reactorCharge}%`;
+  reactorValue.textContent = activeOverdrive ? `${value}s` : `${reactorCharge}%`;
+  reactorButton.disabled = disabled;
+  reactorButton.classList.toggle('ready', reactorCharge >= 100 && !activeOverdrive);
+  reactorButton.classList.toggle('active', activeOverdrive);
+  reactorButton.setAttribute('aria-label', activeOverdrive ? `오버드라이브 ${value}초 남음` : `리액터 충전 ${reactorCharge}%`);
+}
+
+function activateReactor() {
+  if (!running || resolving || reactorCharge < 100 || performance.now() < overdriveUntil) return;
+  reactorCharge = 0;
+  overdriveUntil = performance.now() + OVERDRIVE_MS;
+  callout.textContent = 'OVERDRIVE ×2';
+  callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
+  boardFrame.classList.add('overdrive');
+  setTimeout(() => boardFrame.classList.remove('overdrive'), OVERDRIVE_MS);
+  levelUpSound(20); updateReactor();
+}
+
+function renderMeta() {
+  paceButton.textContent = `PACE · ${gameMode === 'daily' ? 'FIXED' : pace.label}`;
+  const themes = unlockedThemes(profile);
+  if (!themes.some(theme => theme.id === profile.theme)) profile.theme = 'reactor';
+  const theme = themes.find(item => item.id === profile.theme) || themes[0];
+  themeButton.textContent = `THEME · ${theme.label}`;
+  document.body.dataset.theme = theme.id;
+}
+
+function cycleTheme() {
+  const themes = unlockedThemes(profile);
+  const index = themes.findIndex(theme => theme.id === profile.theme);
+  profile.theme = themes[(index + 1) % themes.length].id;
+  try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
+  renderMeta();
+}
+
+async function refreshWeekly() {
+  try {
+    const { loadWeeklyClears } = await getLeaderboardApi();
+    const total = await loadWeeklyClears(getKstWeek());
+    weeklyProgress.textContent = `WEEKLY REACTOR · ${Math.min(total, 100000).toLocaleString()} / 100,000`;
+  } catch { weeklyProgress.textContent = 'WEEKLY REACTOR · 오프라인'; }
+}
 function showChain(n, intensity = 'clear') {
   callout.textContent = intensity === 'overload' ? 'OVERLOAD' : intensity === 'surge' ? 'SURGE' : n===1 ? 'CLEAR' : `${n} CHAIN`;
   callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
@@ -503,11 +578,19 @@ function endGame() {
   overlayCopy.textContent=`최종 점수 ${String(score).padStart(6,'0')} · 다시 연결하시겠습니까?`;
   document.querySelector('#startButton').innerHTML='RETRY <span>↻</span>';
   shareButton.hidden = false;
+  dailyButton.hidden = false;
   overlay.classList.add('visible', 'game-over');
   scoreRecord.hidden = false;
   playerNameInput.value = savedPlayerName();
   scoreStatus.textContent = '';
   refreshLeaderboard();
+  profile = finishRun(profile, { level, clears: lines, maxChain });
+  try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
+  pace = getPace(profile); renderMeta();
+  getLeaderboardApi().then(({submitRunSummary}) => submitRunSummary({
+    week:getKstWeek(), score, level, clears:lines, maxChain,
+    durationSec:Math.max(1, Math.round((Date.now()-runStartedAt)/1000)), mode:gameMode,
+  })).then(refreshWeekly).catch(()=>{});
   tone(90,.22);
 }
 
@@ -522,10 +605,10 @@ function loop(time) {
       if (lockTimer >= getLockDelay(level)) lock();
     } else {
       lockTimer = 0;
-      if (dropTimer > getDropInterval(level)) { move(0,1); dropTimer=0; }
+      if (performance.now() >= overdriveUntil && dropTimer > getDropInterval(level) / (gameMode === 'daily' ? 1 : pace.multiplier)) { move(0,1); dropTimer=0; }
     }
   }
-  draw(); requestAnimationFrame(loop);
+  updateReactor(); draw(); requestAnimationFrame(loop);
 }
 
 let audio, music, legacyMediaPrimed = false;
@@ -647,10 +730,11 @@ function rememberPlayerName(name) {
 }
 
 async function refreshLeaderboard() {
+  leaderboardTitle.textContent = gameMode === 'daily' ? `DAILY ${dailyDay || getKstDay()} · TOP 50` : 'TOP 50';
   leaderboardList.innerHTML = '<li><strong>기록 불러오는 중…</strong></li>';
   try {
-    const { loadTopScores } = await getLeaderboardApi();
-    const entries = await loadTopScores();
+    const { loadTopScores, loadDailyScores } = await getLeaderboardApi();
+    const entries = gameMode === 'daily' ? await loadDailyScores(dailyDay || getKstDay()) : await loadTopScores();
     leaderboardList.replaceChildren(...entries.map(entry => {
       const item = document.createElement('li');
       const name = document.createElement('strong');
@@ -716,9 +800,18 @@ function act(action) {
 document.querySelector('#startButton').addEventListener('click',()=>{
   unlockAudioSession();
   document.body.classList.add('playing');
+  gameMode = overlay.classList.contains('game-over') ? gameMode : 'endless';
   if (!tutorialSeen()) openTutorial(true);
-  else reset();
+  else reset(gameMode);
 });
+dailyButton.addEventListener('click',()=>{
+  unlockAudioSession(); document.body.classList.add('playing'); gameMode = 'daily';
+  if (!tutorialSeen()) openTutorial(true);
+  else reset('daily');
+});
+reactorButton.addEventListener('click', activateReactor);
+themeButton.addEventListener('click', cycleTheme);
+paceButton.addEventListener('click',()=>showGestureHint(`추천 페이스 · ${pace.label}`));
 scoreForm.addEventListener('submit', async event => {
   event.preventDefault();
   if (scoreSubmitted) return;
@@ -726,14 +819,14 @@ scoreForm.addEventListener('submit', async event => {
   submitButton.disabled = true;
   scoreStatus.textContent = '기록 저장 중…';
   try {
-    const { normalizePlayerName, submitScore } = await getLeaderboardApi();
+    const { normalizePlayerName, submitScore, submitDailyScore } = await getLeaderboardApi();
     const name = normalizePlayerName(playerNameInput.value);
     if (!name) {
       scoreStatus.textContent = '이름을 입력해주세요.';
       playerNameInput.focus();
       return;
     }
-    const savedName = await submitScore(name, score, level);
+    const savedName = gameMode === 'daily' ? await submitDailyScore(name, score, level, dailyDay) : await submitScore(name, score, level);
     rememberPlayerName(savedName);
     playerNameInput.value = savedName;
     scoreSubmitted = true;
@@ -759,6 +852,7 @@ tutorialClose.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial
 gameShell.addEventListener('contextmenu',e=>e.preventDefault());
 window.addEventListener('keydown',e=>{
   if (!tutorial.hidden) { if (e.key === 'Escape') { e.preventDefault(); closeTutorial(); } return; }
+  if (e.key.toLowerCase() === 'a') { e.preventDefault(); activateReactor(); return; }
   const action=actionForKey(e);
   if(action) { e.preventDefault(); act(action); }
 });
@@ -822,4 +916,5 @@ canvas.addEventListener('pointerup',e=>{
 canvas.addEventListener('pointercancel',()=>{ gestureStart=null; });
 
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
-draw(); drawRacks(); updateStats();
+draw(); drawRacks(); updateStats(); updateReactor(); renderMeta(); refreshWeekly();
+setupPwa(installButton);
