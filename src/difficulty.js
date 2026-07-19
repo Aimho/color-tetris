@@ -1,9 +1,15 @@
 export function getDropInterval(level) {
-  return Math.max(70, Math.round(820 - (Math.max(1, level) - 1) * (750 / 19)));
+  const normalized = Math.min(1, (Math.max(1, level) - 1) / 19);
+  return Math.max(55, Math.round(600 - 545 * normalized ** 1.22));
 }
 
 export function getLockDelay(level) {
-  return Math.max(220, Math.round(450 - (Math.max(1, level) - 1) * (230 / 19)));
+  const normalized = Math.min(1, (Math.max(1, level) - 1) / 19);
+  return Math.max(170, Math.round(380 - 210 * normalized));
+}
+
+export function getLevelForClears(clearedCells) {
+  return Math.min(20, 1 + Math.floor(Math.max(0, clearedCells) / 30));
 }
 
 export function getClearIntensity(removedCount) {

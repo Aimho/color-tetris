@@ -1,9 +1,10 @@
 import './style.css';
 import { actionForKey } from './input.js';
-import { createAudioContext, resumeIfSuspended, unlockAudioContext } from './audio.js';
-import { createPieceColors } from './pieces.js';
+import { configureAudioSession, createAudioContext, primeLegacyMediaChannel, resumeIfSuspended, unlockAudioContext } from './audio.js';
+import { createPieceColors, createPieceEvent } from './pieces.js';
 import { MusicEngine } from './music.js';
-import { getClearIntensity, getDropInterval, getLockDelay } from './difficulty.js';
+import { getClearIntensity, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
+import { expandArrowClears } from './events.js';
 
 const COLS = 10;
 const ROWS = 20;
@@ -43,14 +44,15 @@ const playerNameInput = document.querySelector('#playerName');
 const scoreStatus = document.querySelector('#scoreStatus');
 const leaderboardList = document.querySelector('#leaderboardList');
 const buildVersion = document.querySelector('#buildVersion');
+const shareButton = document.querySelector('#shareButton');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-let board, active, queue, hold, holdUsed, score, level, lines, running, paused;
+let board, eventBoard, active, queue, hold, holdUsed, score, level, lines, running, paused;
 let lastTime = 0, dropTimer = 0, resolving = false, muted = false;
 let shapeBag = [], colorBag = [];
 let runId = 0, lockTimer = 0;
-let piecesSinceMono = 0, particles = [];
+let piecesSinceMono = 0, piecesSinceEvent = 0, particles = [];
 let tutorialStartsGame = false, piecesSpawned = 0, hintTimer;
 let tutorialOpener = null, autoPaused = false;
 let gestureStart = null;
@@ -88,9 +90,18 @@ function takeColors() {
 function makePiece() {
   const type = takeShape();
   const result = createPieceColors(COLORS.length, piecesSinceMono, takeColors);
+  const eventResult = createPieceEvent(piecesSinceEvent, SHAPES[type].length);
   piecesSinceMono = result.isMono ? 0 : piecesSinceMono + 1;
+  piecesSinceEvent = eventResult.nextCount;
   const colors = result.colors;
-  return { type, cells: SHAPES[type].map((p, i) => ({ x:p[0], y:p[1], color:colors[i] })), x:SPAWN_X, y:-1 };
+  return {
+    type,
+    cells: SHAPES[type].map((p, i) => ({
+      x:p[0], y:p[1], color:colors[i],
+      event: eventResult.event?.cellIndex === i ? eventResult.event.direction : null,
+    })),
+    x:SPAWN_X, y:-1,
+  };
 }
 
 function refillQueue() { while (queue.length < 3) queue.push(makePiece()); }
@@ -110,20 +121,22 @@ function reset() {
   runId++;
   document.body.classList.add('playing');
   board = Array.from({length: ROWS}, () => Array(COLS).fill(null));
+  eventBoard = Array.from({length: ROWS}, () => Array(COLS).fill(null));
   queue = []; hold = null; holdUsed = false; score = 0; level = 1; lines = 0;
   shapeBag = []; colorBag = []; resolving = false; running = true; paused = false; piecesSpawned = 0;
-  piecesSinceMono = 0; particles = [];
+  piecesSinceMono = 0; piecesSinceEvent = 0; particles = [];
   refillQueue(); spawn(); updateStats();
   overlay.classList.remove('visible', 'game-over');
   scoreRecord.hidden = true;
   scoreSubmitted = false;
   scoreForm.querySelector('button').disabled = false;
+  shareButton.hidden = true;
   lastTime = performance.now(); dropTimer = 0; lockTimer = 0;
   startMusic();
   requestAnimationFrame(loop);
 }
 
-function cellsOf(piece) { return piece.cells.map(c => ({ x: c.x + piece.x, y: c.y + piece.y, color: c.color })); }
+function cellsOf(piece) { return piece.cells.map(c => ({ x: c.x + piece.x, y: c.y + piece.y, color: c.color, event: c.event })); }
 
 function collides(piece) {
   return cellsOf(piece).some(c => c.x < 0 || c.x >= COLS || c.y >= ROWS || (c.y >= 0 && board[c.y][c.x] !== null));
@@ -161,7 +174,10 @@ function lock() {
   gestureStart = null;
   const cells = cellsOf(active);
   if (cells.some(c => c.y < 0)) { endGame(); return; }
-  for (const c of cells) board[c.y][c.x] = c.color;
+  for (const c of cells) {
+    board[c.y][c.x] = c.color;
+    eventBoard[c.y][c.x] = c.event;
+  }
   lockTimer = 0;
   tone(150, .05);
   resolveBoard();
@@ -175,7 +191,8 @@ async function resolveBoard() {
     const groups = findGroups();
     if (!groups.length) break;
     chain++;
-    const removed = new Set(groups.flat().map(([x,y]) => `${x},${y}`));
+    const matched = new Set(groups.flat().map(([x,y]) => `${x},${y}`));
+    const removed = expandArrowClears(matched, board, eventBoard);
     chainEl.textContent = `×${chain}`;
     await pause(180);
     await waitUntilResumed(resolvingRun);
@@ -184,11 +201,12 @@ async function resolveBoard() {
       const [x,y] = key.split(',').map(Number);
       createShards(x, y, board[y][x], chain, removed.size);
       board[y][x] = null;
+      eventBoard[y][x] = null;
     }
     score += Math.round(removed.size * 10 * [1,1.5,2.2,3.2,4.5][Math.min(chain - 1, 4)]);
     lines += removed.size;
     const previousLevel = level;
-    level = Math.min(20, 1 + Math.floor(lines / 40));
+    level = getLevelForClears(lines);
     music?.setLevel(level);
     updateStats();
     showClearImpact(removed.size, chain);
@@ -225,8 +243,13 @@ function findGroups() {
 function applyGravity() {
   for (let x = 0; x < COLS; x++) {
     const values = [];
-    for (let y = ROWS - 1; y >= 0; y--) if (board[y][x] !== null) values.push(board[y][x]);
-    for (let y = ROWS - 1, i = 0; y >= 0; y--, i++) board[y][x] = i < values.length ? values[i] : null;
+    for (let y = ROWS - 1; y >= 0; y--) {
+      if (board[y][x] !== null) values.push({color:board[y][x], event:eventBoard[y][x]});
+    }
+    for (let y = ROWS - 1, i = 0; y >= 0; y--, i++) {
+      board[y][x] = i < values.length ? values[i].color : null;
+      eventBoard[y][x] = i < values.length ? values[i].event : null;
+    }
   }
 }
 
@@ -245,14 +268,34 @@ function ghostY() {
   return ghost.y;
 }
 
-function drawCell(context, x, y, colorIndex, size=CELL, alpha=1) {
+function drawCell(context, x, y, colorIndex, size=CELL, alpha=1, event=null) {
   const pad = Math.max(1.5, size * .06), px=x*size+pad, py=y*size+pad, s=size-pad*2;
   context.globalAlpha = alpha;
   context.fillStyle = COLORS[colorIndex];
   roundRect(context, px, py, s, s, size*.17); context.fill();
   context.fillStyle = 'rgba(255,255,255,.25)';
   roundRect(context, px+size*.09, py+size*.07, s-size*.18, size*.075, size*.04); context.fill();
+  if (event) drawEventArrow(context, px+s/2, py+s/2, size, event);
   context.globalAlpha = 1;
+}
+
+function drawEventArrow(context, cx, cy, size, direction) {
+  const rotations = {up:0, right:Math.PI/2, down:Math.PI, left:-Math.PI/2};
+  context.save();
+  context.translate(cx, cy);
+  context.rotate(rotations[direction] || 0);
+  context.fillStyle = 'rgba(7,9,9,.72)';
+  context.beginPath();
+  context.moveTo(0, -size*.2);
+  context.lineTo(size*.18, 0);
+  context.lineTo(size*.07, 0);
+  context.lineTo(size*.07, size*.2);
+  context.lineTo(-size*.07, size*.2);
+  context.lineTo(-size*.07, 0);
+  context.lineTo(-size*.18, 0);
+  context.closePath();
+  context.fill();
+  context.restore();
 }
 
 function createShards(x, y, colorIndex, chain, removedCount) {
@@ -340,11 +383,11 @@ function draw() {
   ctx.strokeStyle='rgba(255,255,255,.035)'; ctx.lineWidth=1;
   for(let x=1;x<COLS;x++){ctx.beginPath();ctx.moveTo(x*CELL,0);ctx.lineTo(x*CELL,ROWS*CELL);ctx.stroke();}
   for(let y=1;y<ROWS;y++){ctx.beginPath();ctx.moveTo(0,y*CELL);ctx.lineTo(COLS*CELL,y*CELL);ctx.stroke();}
-  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++) if(board[y][x]!==null) drawCell(ctx,x,y,board[y][x]);
+  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++) if(board[y][x]!==null) drawCell(ctx,x,y,board[y][x],CELL,1,eventBoard[y][x]);
   if (active && running && !resolving) {
     const landingY = ghostY();
-    for (const c of active.cells) if(c.y+landingY>=0) drawCell(ctx,c.x+active.x,c.y+landingY,c.color,CELL,.18);
-    for (const c of cellsOf(active)) if(c.y>=0) drawCell(ctx,c.x,c.y,c.color);
+    for (const c of active.cells) if(c.y+landingY>=0) drawCell(ctx,c.x+active.x,c.y+landingY,c.color,CELL,.18,c.event);
+    for (const c of cellsOf(active)) if(c.y>=0) drawCell(ctx,c.x,c.y,c.color,CELL,1,c.event);
   }
   drawParticles();
 }
@@ -354,7 +397,7 @@ function drawMini(context, piece, top, cell=15, centerX=context.canvas.width/2) 
   const xs=piece.cells.map(c=>c.x), ys=piece.cells.map(c=>c.y);
   const width=(Math.max(...xs)-Math.min(...xs)+1)*cell;
   const ox=(centerX-width/2)/cell-Math.min(...xs);
-  piece.cells.forEach(c=>drawCell(context,c.x+ox,c.y+top,c.color,cell));
+  piece.cells.forEach(c=>drawCell(context,c.x+ox,c.y+top,c.color,cell,1,c.event));
 }
 
 function drawRacks() {
@@ -416,6 +459,7 @@ function endGame() {
   overlayTitle.innerHTML='반응로가<br />가득 찼다';
   overlayCopy.textContent=`최종 점수 ${String(score).padStart(6,'0')} · 다시 연결하시겠습니까?`;
   document.querySelector('#startButton').innerHTML='RETRY <span>↻</span>';
+  shareButton.hidden = false;
   overlay.classList.add('visible', 'game-over');
   scoreRecord.hidden = false;
   playerNameInput.value = savedPlayerName();
@@ -441,7 +485,7 @@ function loop(time) {
   draw(); requestAnimationFrame(loop);
 }
 
-let audio, music;
+let audio, music, legacyMediaPrimed = false;
 function ensureAudio() {
   if (!audio || audio.state === 'closed') {
     audio=createAudioContext(window);
@@ -453,6 +497,11 @@ function ensureAudio() {
 }
 
 function unlockAudioSession() {
+  const sessionConfigured = configureAudioSession(navigator);
+  if (!sessionConfigured && !legacyMediaPrimed) {
+    legacyMediaPrimed = true;
+    primeLegacyMediaChannel(window).then(primed => { legacyMediaPrimed = primed; });
+  }
   const context = ensureAudio();
   if (!context) return;
   unlockAudioContext(context).then(unlocked => {
@@ -557,6 +606,36 @@ async function refreshLeaderboard() {
   }
 }
 
+async function shareGame() {
+  const url = `${location.origin}${location.pathname}`;
+  const data = {
+    title: 'Color Tetrix',
+    text: `Color Tetrix에서 ${score.toLocaleString()}점을 기록했습니다. 색을 연결하고 연쇄에 도전해보세요!`,
+    url,
+  };
+  try {
+    if (navigator.share) {
+      await navigator.share(data);
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    showShareCopied();
+  } catch (error) {
+    if (error?.name === 'AbortError') return;
+    try {
+      await navigator.clipboard.writeText(url);
+      showShareCopied();
+    } catch {
+      scoreStatus.textContent = `공유 링크: ${url}`;
+    }
+  }
+}
+
+function showShareCopied() {
+  shareButton.textContent = 'COPIED ✓';
+  setTimeout(() => { shareButton.innerHTML = 'SHARE <span>↗</span>'; }, 1400);
+}
+
 function softDrop() {
   if (!move(0,1)) return false;
   score += 1; updateStats();
@@ -606,6 +685,7 @@ scoreForm.addEventListener('submit', async event => {
     submitButton.disabled = scoreSubmitted;
   }
 });
+shareButton.addEventListener('click', shareGame);
 document.querySelectorAll('[data-action]').forEach(button=>button.addEventListener('pointerdown',e=>{e.preventDefault();act(button.dataset.action);}));
 document.querySelector('#soundButton').addEventListener('click',e=>{
   muted=!muted;
@@ -681,5 +761,5 @@ canvas.addEventListener('pointerup',e=>{
 });
 canvas.addEventListener('pointercancel',()=>{ gestureStart=null; });
 
-board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
+board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
 draw(); drawRacks(); updateStats();

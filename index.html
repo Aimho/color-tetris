@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#090b0b" />
     <meta name="description" content="색을 연결해 연쇄시키는 모바일 퍼즐 액션 게임" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Color Tetrix" />
+    <meta property="og:title" content="Color Tetrix — 색을 연결하고 낙하로 연쇄하라" />
+    <meta property="og:description" content="같은 색을 연결해 터뜨리고, 화살표 이벤트와 낙하 연쇄로 최고 기록에 도전하세요." />
+    <meta property="og:url" content="https://color-tetrix-aimho.web.app/" />
+    <meta property="og:image" content="https://color-tetrix-aimho.web.app/og-cover.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Color Tetrix" />
+    <meta name="twitter:description" content="색을 연결하고, 낙하로 연쇄하라." />
+    <meta name="twitter:image" content="https://color-tetrix-aimho.web.app/og-cover.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Color Tetrix</title>
   </head>
   <body>
@@ -55,7 +69,10 @@
                 <ol id="leaderboardList"></ol>
               </div>
             </section>
-            <button id="startButton">PLAY <span>▶</span></button>
+            <div class="end-actions">
+              <button id="startButton">PLAY <span>▶</span></button>
+              <button id="shareButton" hidden>SHARE <span>↗</span></button>
+            </div>
           </div>
         </div>
 
@@ -97,6 +114,7 @@
           <p><kbd>SPACE</kbd><span>하드 드롭</span></p>
           <p><kbd>SHIFT</kbd><kbd>C</kbd><span>HOLD</span></p>
         </div>
+        <div class="event-guide"><strong>↑ ↓ ← →</strong><span>색 연결로 깨지면 화살표 방향을 관통 제거</span></div>
         <button class="tutorial-close" id="tutorialClose">READY <span>▶</span></button>
         <small>이 안내는 처음 한 번만 표시됩니다. ? 버튼에서 다시 볼 수 있어요.</small>
       </div>
