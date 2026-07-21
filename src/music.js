@@ -4,8 +4,10 @@ const PROFILES = [
   { minLevel: 10, bpm: 124, pulseEvery: 2, hatEvery: 2, tension: true },
   { minLevel: 15, bpm: 144, pulseEvery: 1, hatEvery: 1, tension: true },
 ];
+const REACTOR_PROFILE = { bpm: 172, pulseEvery: 1, hatEvery: 1, tension: true, reactor: true };
 
-export function getMusicProfile(level) {
+export function getMusicProfile(level, reactor = false) {
+  if (reactor) return REACTOR_PROFILE;
   return PROFILES.findLast(profile => level >= profile.minLevel) || PROFILES[0];
 }
 
@@ -19,6 +21,7 @@ export class MusicEngine {
     this.step = 0;
     this.nextNoteTime = 0;
     this.timer = null;
+    this.reactor = false;
   }
 
   start(level = this.level) {
@@ -44,9 +47,18 @@ export class MusicEngine {
 
   setLevel(level) { this.level = level; }
 
+  setReactor(active) {
+    this.reactor = active;
+    const now = this.context.currentTime;
+    this.master.gain.cancelScheduledValues(now);
+    this.master.gain.setValueAtTime(Math.max(this.master.gain.value, 0.0001), now);
+    this.master.gain.exponentialRampToValueAtTime(active ? 0.052 : 0.032, now + 0.12);
+    this.nextNoteTime = Math.min(this.nextNoteTime, now + 0.03);
+  }
+
   schedule() {
     while (this.nextNoteTime < this.context.currentTime + 0.14) {
-      const profile = getMusicProfile(this.level);
+      const profile = getMusicProfile(this.level, this.reactor);
       this.scheduleStep(this.step, this.nextNoteTime, profile);
       this.nextNoteTime += 60 / profile.bpm / 4;
       this.step = (this.step + 1) % 16;
@@ -65,6 +77,10 @@ export class MusicEngine {
       this.note(1500 + (step % 4) * 180, time, 0.018, 'square', 0.055);
     }
     if (profile.tension && step === 15) this.note(440, time, 0.09, 'sawtooth', 0.1);
+    if (profile.reactor) {
+      if (step % 4 === 0) this.note(55, time, 0.2, 'sawtooth', 0.34);
+      if (step % 2 === 0) this.note(step % 4 === 0 ? 880 : 660, time, 0.045, 'square', 0.15);
+    }
   }
 
   note(frequency, time, duration, type, volume) {

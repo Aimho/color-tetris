@@ -1,6 +1,6 @@
 {
-  "appId": "app.aimho.colortetrix",
-  "appName": "Color Tetrix",
+  "appId": "app.aimho.colorbomb",
+  "appName": "COLOR BOMB",
   "webDir": "dist",
   "server": { "androidScheme": "https" }
 }

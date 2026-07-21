@@ -17,3 +17,10 @@ test('높은 레벨에서는 음표 밀도와 긴장 레이어가 증가한다',
   assert.ok(urgent.hatEvery > 0);
   assert.equal(urgent.tension, true);
 });
+
+test('리액터 모드는 레벨과 무관하게 더 빠르고 강한 전용 프로필을 사용한다', () => {
+  const reactor = getMusicProfile(1, true);
+  assert.equal(reactor.reactor, true);
+  assert.ok(reactor.bpm > getMusicProfile(20).bpm);
+  assert.equal(reactor.pulseEvery, 1);
+});

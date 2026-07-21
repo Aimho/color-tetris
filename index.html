@@ -6,30 +6,30 @@
     <meta name="theme-color" content="#090b0b" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="description" content="색을 연결해 연쇄시키는 모바일 퍼즐 액션 게임" />
+    <meta name="description" content="같은 색 6칸 이상을 연결해 블럭을 폭파하고 연쇄를 이어나가세요." />
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Color Tetrix" />
-    <meta property="og:title" content="Color Tetrix — 색을 연결하고 낙하로 연쇄하라" />
-    <meta property="og:description" content="같은 색을 연결해 터뜨리고, 화살표 이벤트와 낙하 연쇄로 최고 기록에 도전하세요." />
+    <meta property="og:site_name" content="COLOR BOMB" />
+    <meta property="og:title" content="COLOR BOMB" />
+    <meta property="og:description" content="같은 색 6칸 이상을 연결해 블럭을 폭파하고 연쇄를 이어나가세요." />
     <meta property="og:url" content="https://color-tetrix-aimho.web.app/" />
     <meta property="og:image" content="https://color-tetrix-aimho.web.app/og-cover.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Color Tetrix" />
-    <meta name="twitter:description" content="색을 연결하고, 낙하로 연쇄하라." />
+    <meta name="twitter:title" content="COLOR BOMB" />
+    <meta name="twitter:description" content="같은 색 6칸 이상을 연결해 블럭을 폭파하고 연쇄를 이어나가세요." />
     <meta name="twitter:image" content="https://color-tetrix-aimho.web.app/og-cover.png" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <title>Color Tetrix</title>
+    <title>COLOR BOMB</title>
   </head>
   <body>
     <main class="game-shell">
       <header class="brand-row">
         <div class="brand-lockup">
           <p class="eyebrow">CHAIN REACTOR · 01</p>
-          <h1>COLOR<br /><span>TETRIX</span></h1>
+          <h1>COLOR<br /><span>BOMB</span></h1>
         </div>
         <div class="header-actions">
           <button class="icon-button" id="helpButton" aria-label="조작 방법 보기">?</button>
@@ -45,7 +45,7 @@
 
       <section class="play-area">
         <aside class="piece-rack hold-rack">
-          <span class="rack-label">HOLD</span>
+          <span class="rack-label">보관</span>
           <canvas id="holdCanvas" width="72" height="72" aria-label="보관 중인 조각"></canvas>
           <small>SHIFT</small>
         </aside>
@@ -55,81 +55,73 @@
           <div class="chain-callout" id="chainCallout" aria-live="polite"></div>
           <div class="level-callout" id="levelCallout" aria-live="polite"></div>
           <div class="gesture-hint" id="gestureHint" aria-live="polite">탭 회전 · 드래그 이동</div>
-          <button class="reactor" id="reactorButton" type="button" aria-label="리액터 충전 0%" disabled>
-            <span>REACTOR</span><i><b id="reactorFill"></b></i><strong id="reactorValue">0%</strong>
-          </button>
-          <canvas id="gameCanvas" width="340" height="680" aria-label="Color Tetrix 게임 보드"></canvas>
+          <div class="reactor-surge" id="reactorStatus" role="status" aria-label="리액터 발동" hidden>
+            <span>REACTOR</span><strong id="reactorValue">5</strong><small id="reactorInstruction">TOUCH THE FIELD</small>
+          </div>
+          <canvas id="gameCanvas" width="340" height="680" aria-label="COLOR BOMB 게임 보드"></canvas>
           <div class="game-overlay visible" id="overlay">
             <p class="overlay-kicker">COLOR × SHAPE</p>
-            <h2 id="overlayTitle">연결은<br />낙하한 뒤 시작된다</h2>
-            <p id="overlayCopy">같은 색 6칸을 이어 지우고, 빈틈의 낙하로 연쇄를 만드세요.</p>
+            <h2 id="overlayTitle">블럭이 낙하하면<br />연결이 시작된다</h2>
+            <p id="overlayCopy">같은 색 6칸 이상을 연결해 블럭을 폭파하고 연쇄를 이어나가세요.</p>
             <div class="meta-panel" id="metaPanel">
               <button id="paceButton" type="button">PACE · STANDARD</button>
               <button id="themeButton" type="button">THEME · REACTOR</button>
-              <p id="weeklyProgress">WEEKLY REACTOR · 불러오는 중…</p>
             </div>
             <section class="score-record" id="scoreRecord" hidden>
-              <p>최종 점수를 기록하시겠습니까?</p>
+              <p>점수를 기록하시겠습니까?</p>
               <form id="scoreForm">
                 <input id="playerName" name="playerName" maxlength="12" autocomplete="nickname" placeholder="이름 입력" aria-label="기록할 이름" required />
                 <button type="submit">RECORD</button>
               </form>
               <p class="score-status" id="scoreStatus" aria-live="polite"></p>
               <div class="leaderboard">
-                <h3 id="leaderboardTitle">TOP 50</h3>
+                <h3 id="leaderboardTitle">기기 내 TOP 50</h3>
                 <ol id="leaderboardList"></ol>
               </div>
             </section>
             <div class="end-actions">
               <button id="startButton">PLAY <span>▶</span></button>
-              <button id="dailyButton">DAILY <span>◆</span></button>
               <button id="shareButton" hidden>SHARE <span>↗</span></button>
             </div>
           </div>
         </div>
 
         <aside class="piece-rack next-rack">
-          <span class="rack-label">NEXT</span>
+          <span class="rack-label">다음</span>
           <canvas id="nextCanvas" width="168" height="48" aria-label="다음 조각"></canvas>
         </aside>
       </section>
 
-      <section class="touch-controls" aria-label="터치 조작">
-        <div class="move-pad">
-          <button data-action="left" aria-label="왼쪽 이동">←</button>
-          <button data-action="down" aria-label="소프트 드롭">↓</button>
-          <button data-action="right" aria-label="오른쪽 이동">→</button>
-        </div>
-        <button class="hold-button" data-action="hold" aria-label="조각 보관">HOLD</button>
-        <button class="rotate-button" data-action="rotate" aria-label="조각 회전">↻</button>
-        <button class="drop-button" data-action="drop" aria-label="하드 드롭">DROP <span>↓</span></button>
-      </section>
-
       <footer><span>CONNECT 6+</span><span id="buildVersion">VER —</span><span>BUILD THE FALL</span></footer>
+      <section class="access-controls" aria-label="접근성 게임 조작">
+        <button type="button" data-access-action="left">왼쪽 이동</button>
+        <button type="button" data-access-action="right">오른쪽 이동</button>
+        <button type="button" data-access-action="down">천천히 내리기</button>
+        <button type="button" data-access-action="rotate">회전</button>
+        <button type="button" data-access-action="hold">조각 보관</button>
+        <button type="button" data-access-action="drop">한 번에 내리기</button>
+      </section>
     </main>
 
     <section class="tutorial" id="tutorial" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle" hidden>
       <div class="tutorial-sheet">
-        <p class="overlay-kicker">HOW TO CONTROL</p>
-        <h2 id="tutorialTitle">손끝으로<br />반응로를 설계하세요</h2>
-        <div class="tutorial-mobile" id="mobileTutorial">
-          <p><strong>탭</strong><span>조각 회전</span></p>
-          <p><strong>↔</strong><span>좌우 드래그 · 실시간 이동</span></p>
-          <p><strong>↓</strong><span>아래 드래그 · 소프트 드롭</span></p>
-          <p><strong>⇣</strong><span>보드 최하단 셀 터치 · 하드 드롭</span></p>
-          <p><strong>↑</strong><span>위 스와이프 · HOLD</span></p>
+        <p class="overlay-kicker">WATCH THE REACTION</p>
+        <h2 id="tutorialTitle">조작을<br />익혀볼까요?</h2>
+        <div class="tutorial-demo" aria-label="조각을 움직여 같은 색 6칸을 연결하고 리액터로 색을 바꾸는 방법">
+          <div class="demo-board" aria-hidden="true">
+            <i class="demo-cell c1"></i><i class="demo-cell c2"></i><i class="demo-cell c3"></i>
+            <i class="demo-cell c4"></i><i class="demo-cell c5"></i><i class="demo-cell c6"></i>
+            <b class="demo-piece"><i></i><i></i></b><em class="demo-finger">●</em><span class="demo-wave"></span>
+          </div>
+          <div class="demo-sequence" aria-hidden="true"><b>MOVE</b><b>CONNECT 6</b><b>REACT</b></div>
         </div>
-        <div class="tutorial-desktop" id="desktopTutorial">
-          <p><kbd>←</kbd><kbd>→</kbd><span>이동</span></p>
-          <p><kbd>↓</kbd><span>소프트 드롭</span></p>
-          <p><kbd>↑</kbd><kbd>W</kbd><kbd>X</kbd><kbd>Z</kbd><span>회전</span></p>
-          <p><kbd>SPACE</kbd><span>하드 드롭</span></p>
-          <p><kbd>SHIFT</kbd><kbd>C</kbd><span>HOLD</span></p>
+        <div class="tutorial-actions">
+          <span><b>↔ ↓ ↻</b> 움직이기</span><span><b>SWIPE ↑ / SHIFT·C</b> 조각 보관</span><span><b>SWIPE ⇣ / SPACE</b> 한 번에 내리기</span>
         </div>
-        <div class="event-guide"><strong>↑ ↓ ← →</strong><span>색 연결로 깨지면 화살표 방향의 다음 행·열 전체 제거</span></div>
-        <div class="event-guide"><strong>REACTOR</strong><span>100% 충전 후 탭 또는 A키 · 6초간 낙하 정지, 점수 2배</span></div>
+        <div class="event-guide"><strong>↑ ↓ ← →</strong><span>화살표 블럭을 폭파하면 가리키는 행·열도 함께 사라집니다.</span></div>
+        <div class="event-guide"><strong>REACTOR</strong><span>리액터가 켜지면 빛나는 보드를 터치하세요. 처음에는 직접 터치할 때까지 시간이 흐르지 않습니다.</span></div>
         <button class="tutorial-close" id="tutorialClose">READY <span>▶</span></button>
-        <small>이 안내는 처음 한 번만 표시됩니다. ? 버튼에서 다시 볼 수 있어요.</small>
+        <small>처음 한 번만 보여드려요. ? 버튼으로 다시 볼 수 있어요.</small>
       </div>
     </section>
     <script type="module" src="/src/main.js"></script>

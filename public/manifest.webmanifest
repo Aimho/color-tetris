@@ -1,7 +1,7 @@
 {
-  "name": "Color Tetrix",
-  "short_name": "Tetrix",
-  "description": "색을 연결하고 낙하로 연쇄하는 퍼즐 액션 게임",
+  "name": "COLOR BOMB",
+  "short_name": "BOMB",
+  "description": "같은 색 6칸 이상을 연결해 블럭을 폭파하고 연쇄를 이어나가세요.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

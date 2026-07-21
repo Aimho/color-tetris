@@ -3,8 +3,8 @@
   <g opacity=".16" stroke="#e9f65b"><path d="M0 70h1200M0 140h1200M0 210h1200M0 280h1200M0 350h1200M0 420h1200M0 490h1200M0 560h1200"/><path d="M70 0v630M140 0v630M210 0v630M280 0v630M350 0v630M420 0v630M490 0v630M560 0v630M630 0v630M700 0v630M770 0v630M840 0v630M910 0v630M980 0v630M1050 0v630M1120 0v630"/></g>
   <text x="72" y="112" fill="#e9f65b" font-family="monospace" font-size="24" font-weight="700" letter-spacing="5">CHAIN REACTOR</text>
   <text x="66" y="250" fill="#f3f0df" font-family="Arial Black,sans-serif" font-size="110" font-weight="900">COLOR</text>
-  <text x="66" y="355" fill="#ff6542" font-family="Arial Black,sans-serif" font-size="110" font-weight="900">TETRIX</text>
-  <text x="72" y="420" fill="#aaa99e" font-family="sans-serif" font-size="30">색을 연결하고, 낙하로 연쇄하라.</text>
+  <text x="66" y="355" fill="#ff6542" font-family="Arial Black,sans-serif" font-size="110" font-weight="900">BOMB</text>
+  <text x="72" y="420" fill="#aaa99e" font-family="sans-serif" font-size="24">같은 색 6칸 이상을 연결해 블럭을 폭파하고 연쇄를 이어나가세요.</text>
   <g transform="translate(780 110)">
     <rect x="0" y="120" width="104" height="104" rx="18" fill="#45d6a5"/><rect x="112" y="120" width="104" height="104" rx="18" fill="#e9f65b"/><rect x="224" y="120" width="104" height="104" rx="18" fill="#f28bd5"/><rect x="112" y="232" width="104" height="104" rx="18" fill="#ff6542"/>
     <path d="M164 143l31 35h-17v30h-28v-30h-17z" fill="#070909"/>

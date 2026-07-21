@@ -1,7 +1,7 @@
 {
-  "name": "color-tetris",
+  "name": "color-bomb",
   "private": true,
-  "version": "0.3.2",
+  "version": "0.4.0",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
@@ -11,7 +11,7 @@
     "test": "node --test",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "deploy": "firebase deploy --only hosting",
+    "deploy": "firebase deploy --only firestore,hosting",
     "cap:add:ios": "npm run build && cap add ios",
     "cap:add:android": "npm run build && cap add android",
     "cap:sync": "npm run build && cap sync"
@@ -23,7 +23,5 @@
     "@capacitor/ios": "^7.6.8",
     "vite": "^7.0.0"
   },
-  "dependencies": {
-    "firebase": "^12.16.0"
-  }
+  "dependencies": {}
 }

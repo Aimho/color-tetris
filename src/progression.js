@@ -1,20 +1,9 @@
 export const PROFILE_KEY = 'color-tetrix-profile-v1';
 export const REACTOR_MAX = 100;
-export const OVERDRIVE_MS = 6000;
 
-export function createSeededRandom(seedText) {
-  let seed = 2166136261;
-  for (const char of seedText) {
-    seed ^= char.charCodeAt(0);
-    seed = Math.imul(seed, 16777619);
-  }
-  return () => {
-    seed += 0x6D2B79F5;
-    let value = seed;
-    value = Math.imul(value ^ value >>> 15, value | 1);
-    value ^= value + Math.imul(value ^ value >>> 7, value | 61);
-    return ((value ^ value >>> 14) >>> 0) / 4294967296;
-  };
+export function getReactorChargeRate(level) {
+  const normalized = Math.min(1, (Math.max(1, level) - 1) / 19);
+  return Math.round((1 - normalized * .55) * 100) / 100;
 }
 
 export function getKstDay(date = new Date()) {
@@ -64,6 +53,7 @@ export function getPace(profile) {
   return { id: 1, label: 'STANDARD', multiplier: 1 };
 }
 
-export function chargeReactor(current, removedCount, chain) {
-  return Math.min(REACTOR_MAX, current + removedCount * 3 + Math.max(0, chain - 1) * 4);
+export function chargeReactor(current, removedCount, chain, level = 1) {
+  const earned = (removedCount * 1.5 + Math.max(0, chain - 1) * 2) * getReactorChargeRate(level);
+  return Math.min(REACTOR_MAX, current + Math.round(earned));
 }
