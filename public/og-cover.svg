@@ -4,10 +4,10 @@
   <text x="72" y="112" fill="#e9f65b" font-family="monospace" font-size="24" font-weight="700" letter-spacing="5">CHAIN REACTOR</text>
   <text x="66" y="250" fill="#f3f0df" font-family="Arial Black,sans-serif" font-size="110" font-weight="900">COLOR</text>
   <text x="66" y="355" fill="#ff6542" font-family="Arial Black,sans-serif" font-size="110" font-weight="900">BOMB</text>
-  <text x="72" y="420" fill="#aaa99e" font-family="sans-serif" font-size="24">같은 색 6칸 이상을 연결해 블럭을 폭파하고 연쇄를 이어나가세요.</text>
+  <text x="72" y="420" fill="#aaa99e" font-family="sans-serif" font-size="24">같은 색 블록을 6칸 이상 연결하고, 낙하로 연쇄를 만드세요.</text>
   <g transform="translate(780 110)">
     <rect x="0" y="120" width="104" height="104" rx="18" fill="#45d6a5"/><rect x="112" y="120" width="104" height="104" rx="18" fill="#e9f65b"/><rect x="224" y="120" width="104" height="104" rx="18" fill="#f28bd5"/><rect x="112" y="232" width="104" height="104" rx="18" fill="#ff6542"/>
     <path d="M164 143l31 35h-17v30h-28v-30h-17z" fill="#070909"/>
   </g>
-  <text x="72" y="555" fill="#e9f65b" font-family="monospace" font-size="22" font-weight="700">CONNECT 6+  ·  BUILD THE FALL</text>
+  <text x="72" y="555" fill="#e9f65b" font-family="monospace" font-size="22" font-weight="700">CONNECT 6+  ·  BUILD THE CHAIN</text>
 </svg>

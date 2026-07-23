@@ -77,7 +77,10 @@
 
 html, body {
   margin: 0;
+  width: 100%;
+  height: 100%;
   min-height: 100%;
+  overflow: hidden;
   background: var(--canvas);
   overscroll-behavior: none;
   touch-action: none;
@@ -93,6 +96,7 @@ body {
 }
 
 button { font: inherit; }
+button, input { touch-action: manipulation; }
 
 button:focus-visible {
   outline: 2px solid var(--acid);
@@ -175,6 +179,25 @@ button:active { transform: scale(.96); }
   align-items: start;
   gap: 8px;
 }
+
+body:not(.playing) .score-strip,
+body:not(.playing) .piece-rack,
+body:not(.playing) #gameCanvas,
+body:not(.playing) .gesture-hint,
+body:not(.playing) .reactor-surge {
+  display: none;
+}
+
+body:not(.playing) .play-area { display: block; }
+body:not(.playing) .board-frame {
+  width: 100%;
+  height: min(58dvh, 520px);
+  aspect-ratio: auto;
+  background: transparent;
+  box-shadow: none;
+}
+body:not(.playing) .board-frame::after { display: none; }
+body:not(.playing) .game-overlay { background: transparent; }
 
 .board-frame {
   position: relative;
@@ -274,6 +297,7 @@ button:active { transform: scale(.96); }
 .end-actions button span { flex: 0 0 auto; font-size: .88em; line-height: 1; }
 .end-actions button[hidden] { display: none; }
 #shareButton { color: var(--ink); background: var(--surface-raised); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 5px 0 #050606; }
+#rankingButton { color: var(--ink); background: var(--surface-raised); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 5px 0 #050606; }
 .meta-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: min(100%, 310px); margin: -8px 0 16px; }
 .meta-panel button { min-width: 0; min-height: 34px; padding: 0 7px; color: var(--ink); background: var(--surface-raised); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); font-size: 10px; }
 .meta-panel p { grid-column: 1 / -1; margin: 2px 0 0; color: var(--acid); font-size: 10px; letter-spacing: .04em; }
@@ -345,6 +369,35 @@ body[data-theme="aurora"] { --acid: oklch(82% .16 180); --orange: oklch(72% .19 
 .leaderboard li strong { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leaderboard li span { font-variant-numeric: tabular-nums; }
 
+.home-ranking {
+  width: min(100%, 340px);
+  min-height: 0;
+  padding: 18px;
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 18px 42px rgba(0,0,0,.32);
+  text-align: left;
+}
+.home-ranking[hidden] { display: none; }
+.home-ranking-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.home-ranking-head p { margin: 0 0 3px; color: var(--muted); font-size: 8px; letter-spacing: .16em; }
+.home-ranking-head h3 { margin: 0; color: var(--acid); font-size: 18px; letter-spacing: .12em; }
+.game-overlay .ranking-close {
+  min-width: 38px;
+  min-height: 38px;
+  border-radius: 50%;
+  color: var(--ink);
+  background: rgba(255,255,255,.07);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.1);
+  font-size: 20px;
+}
+.home-ranking ol { max-height: min(43dvh, 340px); margin: 0; padding: 0; overflow-y: auto; list-style: none; counter-reset: rank; }
+.home-ranking li { counter-increment: rank; display: grid; grid-template-columns: 30px 1fr auto; gap: 8px; padding: 8px 4px; box-shadow: inset 0 -1px rgba(255,255,255,.06); color: var(--muted); font-size: 12px; }
+.home-ranking li::before { content: counter(rank, decimal-leading-zero); color: var(--acid); }
+.home-ranking li strong { overflow: hidden; color: var(--ink); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.home-ranking li span { font-variant-numeric: tabular-nums; }
+.game-overlay.ranking-view > :not(.home-ranking) { display: none; }
+
 .impact-flash { position: absolute; z-index: 1; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(circle at center, rgba(233,246,91,.38), transparent 62%); }
 .impact-flash.clear { animation: impact-clear 260ms ease-out; }
 .impact-flash.surge { animation: impact-surge 360ms ease-out; }
@@ -410,6 +463,31 @@ footer span:last-child { text-align: right; }
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), 0 24px 60px rgba(0,0,0,.45);
 }
 
+.tutorial-head {
+  position: sticky;
+  z-index: 2;
+  top: -25px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -1px -1px 0;
+  padding: 1px 1px 8px;
+  background: linear-gradient(var(--surface) 76%, transparent);
+}
+
+.tutorial-dismiss {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.1);
+  font-size: 22px;
+  line-height: 1;
+}
+
 .tutorial h2 {
   margin: 8px 0 22px;
   font-family: "Black Han Sans", sans-serif;
@@ -447,7 +525,8 @@ footer span:last-child { text-align: right; }
 .demo-sequence b { animation: demo-label 6s ease-out infinite; }
 .demo-sequence b:nth-child(2) { animation-delay: 2s; }
 .demo-sequence b:nth-child(3) { animation-delay: 4s; }
-.tutorial-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 10px; }
+.tutorial-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 10px; }
+.tutorial-mobile { display: none; }
 .tutorial-actions span { padding: 8px 5px; color: var(--muted); background: rgba(255,255,255,.035); font: 12px/1.35 system-ui, sans-serif; text-align: center; }
 .tutorial-actions b { display: block; margin-bottom: 3px; color: var(--acid); font: 700 12px "Chivo Mono", monospace; }
 .event-guide { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 10px 12px; border-radius: var(--r-sm); color: var(--muted); background: rgba(255,255,255,.04); font: 12px/1.45 system-ui, sans-serif; text-align: left; }
@@ -532,8 +611,11 @@ body.playing .piece-rack small { display: none; }
 body.playing footer { display: none; }
 
 @media (any-pointer: coarse), (max-width: 619px) {
+  .score-record input { font-size: 16px; }
   .tutorial-mobile { display: grid; }
   .tutorial-desktop { display: none; }
+  .tutorial-actions { grid-template-columns: repeat(2, 1fr); }
+  .tutorial-actions span:last-child:nth-child(odd) { grid-column: 1 / -1; }
   body.playing .game-shell { grid-template-rows: auto minmax(0, 1fr); }
   body.playing .board-frame {
     width: min(

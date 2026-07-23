@@ -1,7 +1,7 @@
 {
   "name": "COLOR BOMB",
   "short_name": "BOMB",
-  "description": "같은 색 6칸 이상을 연결해 블럭을 폭파하고 연쇄를 이어나가세요.",
+  "description": "같은 색 블록을 6칸 이상 연결해 폭발시키고, 낙하로 연쇄를 만드세요.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

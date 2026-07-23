@@ -1,22 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadTopScores, normalizePlayerName, submitScore } from '../src/leaderboard.js';
+import { normalizePlayerName, normalizeScore, selectPendingScore, shouldReplaceBestScore } from '../src/leaderboard.js';
 
 test('플레이어 이름의 공백과 길이를 정리한다', () => {
   assert.equal(normalizePlayerName('  COLOR   MASTER  123 '), 'COLOR MASTER');
+  assert.equal(normalizePlayerName('Ａ\u202EB\u200BC'), 'ABC');
 });
 
-test('기기 내 점수를 높은 순서로 저장한다', async () => {
-  const values = new Map();
-  const storage = {
-    getItem: key => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, value),
-  };
-  await submitScore('BOMB A', 120, 2, storage);
-  await submitScore('BOMB B', 340, 3, storage);
-  const scores = await loadTopScores(storage);
-  assert.deepEqual(scores.map(({name, score}) => ({name, score})), [
-    {name:'BOMB B', score:340},
-    {name:'BOMB A', score:120},
-  ]);
+test('점수를 정수 범위로 정리한다', () => {
+  assert.equal(normalizeScore(-10), 0);
+  assert.equal(normalizeScore(123.6), 124);
+  assert.equal(normalizeScore(Number.POSITIVE_INFINITY), 0);
+  assert.equal(normalizeScore(1_000_000_000), 99_999_999);
+});
+
+test('기존 기록보다 높은 점수만 교체한다', () => {
+  assert.equal(shouldReplaceBestScore(undefined, 120), true);
+  assert.equal(shouldReplaceBestScore(120, 120), false);
+  assert.equal(shouldReplaceBestScore(120, 119), false);
+  assert.equal(shouldReplaceBestScore(120, 121), true);
+});
+
+test('미전송 기록도 가장 높은 점수 하나만 보존한다', () => {
+  const previous = { name: 'A', score: 300, level: 3 };
+  const lower = { name: 'B', score: 200, level: 2 };
+  const higher = { name: 'C', score: 400, level: 4 };
+  assert.equal(selectPendingScore(previous, lower), previous);
+  assert.equal(selectPendingScore(previous, higher), higher);
 });

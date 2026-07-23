@@ -1,5 +1,5 @@
 import './style.css';
-import { actionForKey, dragStepTarget } from './input.js';
+import { actionForKey, canStartPointerGesture, dragStepTarget } from './input.js';
 import { findColorGroups, groupSizesByCell, hasOccupiedCell } from './board.js';
 import { configureAudioSession, createAudioContext, primeLegacyMediaChannel, resumeIfSuspended, unlockAudioContext } from './audio.js';
 import { createPieceColors, createPieceEvent, rotateCellClockwise, rotateSquareCells, wallKickOffsets } from './pieces.js';
@@ -7,7 +7,7 @@ import { MusicEngine } from './music.js';
 import { canResetLock, getClearIntensity, getClearScore, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
 import { resolveArrowEffects } from './events.js';
 import { chargeReactor, finishRun, getPace, readProfile, unlockedThemes } from './progression.js';
-import { createReactorState, finishReactor as finishReactorState, getReactorDuration, isReactorActive, isReactorExpired, pauseReactor, reactorSecondsLeft, recolorConnectedGroup, resumeReactor, startReactor } from './reactor.js';
+import { consumeReactorTouch, createReactorState, finishReactor as finishReactorState, getReactorDuration, isReactorActive, isReactorDepleted, isReactorExpired, pauseReactor, reactorSecondsLeft, recolorConnectedGroup, resumeReactor, startReactor } from './reactor.js';
 import { setupPwa } from './pwa.js';
 
 const COLS = 10;
@@ -39,7 +39,9 @@ const overlay = document.querySelector('#overlay');
 const overlayTitle = document.querySelector('#overlayTitle');
 const overlayCopy = document.querySelector('#overlayCopy');
 const tutorial = document.querySelector('#tutorial');
+const tutorialSheet = document.querySelector('.tutorial-sheet');
 const tutorialClose = document.querySelector('#tutorialClose');
+const tutorialDismiss = document.querySelector('#tutorialDismiss');
 const gestureHint = document.querySelector('#gestureHint');
 const gameShell = document.querySelector('.game-shell');
 const scoreRecord = document.querySelector('#scoreRecord');
@@ -48,6 +50,10 @@ const playerNameInput = document.querySelector('#playerName');
 const scoreStatus = document.querySelector('#scoreStatus');
 const leaderboardList = document.querySelector('#leaderboardList');
 const leaderboardTitle = document.querySelector('#leaderboardTitle');
+const homeRanking = document.querySelector('#homeRanking');
+const homeLeaderboardList = document.querySelector('#homeLeaderboardList');
+const rankingButton = document.querySelector('#rankingButton');
+const rankingCloseButton = document.querySelector('#rankingCloseButton');
 const buildVersion = document.querySelector('#buildVersion');
 const shareButton = document.querySelector('#shareButton');
 const reactorStatus = document.querySelector('#reactorStatus');
@@ -148,6 +154,7 @@ function reset() {
   music?.setReactor(false);
   refillQueue(); spawn(); updateStats();
   overlay.classList.remove('visible', 'game-over');
+  closeHomeRanking();
   scoreRecord.hidden = true;
   scoreSubmitted = false;
   scoreForm.querySelector('button').disabled = false;
@@ -247,7 +254,7 @@ async function resolveBoard() {
     const earnedScore = getClearScore(removed.size, chain);
     score += earnedScore;
     lines += removed.size;
-    reactorCharge = chargeReactor(reactorCharge, removed.size, chain, level);
+    reactorCharge = chargeReactor(reactorCharge, matched.size, chain, level);
     updateReactor();
     const previousLevel = level;
     level = getLevelForClears(lines);
@@ -533,14 +540,14 @@ function updateStats() { scoreEl.textContent=String(score).padStart(6,'0'); leve
 function updateReactor() {
   const activeReactor = isReactorActive(reactor);
   const value = activeReactor ? reactorSecondsLeft(reactor, performance.now()) : 0;
-  const renderKey = `${activeReactor}:${value}:${reactorGuideActive}`;
+  const renderKey = `${activeReactor}:${value}:${reactor.touchesRemaining}:${reactorGuideActive}`;
   if (renderKey === reactorRenderKey) return;
   reactorRenderKey = renderKey;
   reactorStatus.hidden = !activeReactor;
   reactorValue.textContent = reactorGuideActive ? 'TAP' : String(value);
-  reactorInstruction.textContent = reactorGuideActive ? 'TOUCH A COLOR GROUP' : 'TOUCH THE FIELD';
+  reactorInstruction.textContent = reactorGuideActive ? 'TAP A COLOR GROUP' : `${reactor.touchesRemaining} TOUCHES LEFT`;
   reactorStatus.setAttribute('aria-label', activeReactor
-    ? reactorGuideActive ? '색상 블럭을 터치해보세요' : `리액터 ${value}초 남음, 쌓인 블럭을 터치하세요`
+    ? reactorGuideActive ? '색상 그룹을 터치하세요' : `리액터 ${value}초, 색상 변경 ${reactor.touchesRemaining}회 남음`
     : '리액터 대기');
 }
 
@@ -553,7 +560,7 @@ function beginReactor() {
   if (reactorGuideActive) reactor = pauseReactor(reactor, now);
   active = null;
   gestureStart = null;
-  callout.textContent = 'REACTOR · TOUCH';
+  callout.textContent = 'REACTOR · READY';
   callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
   boardFrame.classList.add('reactor-active');
   boardFrame.classList.toggle('reactor-guided', reactorGuideActive);
@@ -569,7 +576,7 @@ function finishReactor() {
   boardFrame.classList.remove('reactor-active', 'reactor-guided'); reactorGuideActive = false;
   music?.setReactor(false);
   reactorFinishSound();
-  callout.textContent = 'REACTOR · RESOLVE';
+  callout.textContent = 'REACTOR · CHAIN';
   callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
   updateReactor();
   resolveBoard();
@@ -584,7 +591,7 @@ function resumeReactorTimer() {
 }
 
 function renderMeta() {
-  paceButton.textContent = `PACE · ${pace.label}`;
+  paceButton.textContent = `SPEED · ${pace.label}`;
   const themes = unlockedThemes(profile);
   if (!themes.some(theme => theme.id === profile.theme)) profile.theme = 'reactor';
   const theme = themes.find(item => item.id === profile.theme) || themes[0];
@@ -601,7 +608,7 @@ function cycleTheme() {
 }
 
 function showChain(n, intensity = 'clear', points = 0) {
-  const label = intensity === 'overload' ? 'OVERLOAD' : intensity === 'surge' ? 'SURGE' : n===1 ? 'CLEAR' : `${n} BOMB`;
+  const label = intensity === 'overload' ? 'OVERLOAD' : intensity === 'surge' ? 'SURGE' : n===1 ? 'CLEAR' : `CHAIN ×${n}`;
   callout.textContent = `${label} · +${points.toLocaleString()}`;
   callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
 }
@@ -634,7 +641,8 @@ function openTutorial(startsGame = false) {
   if (running) { pauseReactorTimer(); paused = true; stopMusic(); }
   gameShell.inert = true;
   tutorial.hidden = false;
-  tutorialClose.focus();
+  tutorialSheet.scrollTop = 0;
+  tutorialDismiss.focus({ preventScroll: true });
 }
 
 function closeTutorial() {
@@ -660,9 +668,10 @@ function endGame() {
   running=false; resolving=false;
   stopMusic(.32);
   overlayTitle.innerHTML='연쇄가<br />멈췄습니다';
-  overlayCopy.textContent=`최종 점수 ${String(score).padStart(6,'0')} · 새로운 연쇄를 시작하시겠습니까?`;
+  overlayCopy.textContent=`최종 점수 ${score.toLocaleString()}점 · 새로운 연쇄에 도전하시겠습니까?`;
   document.querySelector('#startButton').innerHTML='RETRY <span>↻</span>';
   shareButton.hidden = false;
+  rankingButton.hidden = true;
   overlay.classList.add('visible', 'game-over');
   scoreRecord.hidden = false;
   playerNameInput.value = savedPlayerName();
@@ -861,13 +870,13 @@ function rememberPlayerName(name) {
   catch { /* private mode fallback */ }
 }
 
-async function refreshLeaderboard() {
-  leaderboardTitle.textContent = '기기 내 TOP 50';
-  leaderboardList.innerHTML = '<li><strong>기록 불러오는 중…</strong></li>';
+async function refreshLeaderboard(targetList = leaderboardList) {
+  leaderboardTitle.textContent = 'TOP 50';
+  targetList.innerHTML = '<li><strong>랭킹을 불러오는 중…</strong></li>';
   try {
     const { loadTopScores } = await getLeaderboardApi();
     const entries = await loadTopScores();
-    leaderboardList.replaceChildren(...entries.map(entry => {
+    targetList.replaceChildren(...entries.map(entry => {
       const item = document.createElement('li');
       const name = document.createElement('strong');
       const points = document.createElement('span');
@@ -876,17 +885,29 @@ async function refreshLeaderboard() {
       item.append(name, points);
       return item;
     }));
-    if (!entries.length) leaderboardList.innerHTML = '<li><strong>첫 기록을 남겨주세요</strong></li>';
+    if (!entries.length) targetList.innerHTML = '<li><strong>아직 등록된 기록이 없습니다.</strong></li>';
   } catch {
-    leaderboardList.innerHTML = '<li><strong>순위를 불러오지 못했습니다</strong></li>';
+    targetList.innerHTML = '<li><strong>랭킹을 불러오지 못했습니다.</strong></li>';
   }
+}
+
+function openHomeRanking() {
+  overlay.classList.add('ranking-view');
+  homeRanking.hidden = false;
+  rankingCloseButton.focus();
+  refreshLeaderboard(homeLeaderboardList);
+}
+
+function closeHomeRanking() {
+  overlay.classList.remove('ranking-view');
+  homeRanking.hidden = true;
 }
 
 async function shareGame() {
   const url = `${location.origin}${location.pathname}`;
   const data = {
     title: 'COLOR BOMB',
-    text: `COLOR BOMB에서 ${score.toLocaleString()}점을 기록했습니다. 같은 색 6칸 이상을 연결해 블럭을 폭파하고 연쇄를 이어나가세요.`,
+    text: `COLOR BOMB에서 ${score.toLocaleString()}점 달성! 같은 색 블록을 6칸 이상 연결하고 거대한 연쇄에 도전해보세요.`,
     url,
   };
   try {
@@ -931,34 +952,41 @@ function act(action) {
 
 document.querySelector('#startButton').addEventListener('click',()=>{
   unlockAudioSession();
+  closeHomeRanking();
+  rankingButton.hidden = true;
   document.body.classList.add('playing');
   if (!tutorialSeen()) openTutorial(true);
   else reset();
 });
+rankingButton.addEventListener('click', openHomeRanking);
+rankingCloseButton.addEventListener('click', () => {
+  closeHomeRanking();
+  rankingButton.focus();
+});
 themeButton.addEventListener('click', cycleTheme);
-paceButton.addEventListener('click',()=>showGestureHint(`추천 페이스 · ${pace.label}`));
+paceButton.addEventListener('click',()=>showGestureHint(`추천 속도 · ${pace.label}`));
 scoreForm.addEventListener('submit', async event => {
   event.preventDefault();
   if (scoreSubmitted) return;
   const submitButton = scoreForm.querySelector('button');
   submitButton.disabled = true;
-  scoreStatus.textContent = '기록 저장 중…';
+  scoreStatus.textContent = '최고 점수를 기록하는 중…';
   try {
     const { normalizePlayerName, submitScore } = await getLeaderboardApi();
     const name = normalizePlayerName(playerNameInput.value);
     if (!name) {
-      scoreStatus.textContent = '이름을 입력해주세요.';
+      scoreStatus.textContent = '플레이어 이름을 입력해주세요.';
       playerNameInput.focus();
       return;
     }
-    const savedName = await submitScore(name, score, level);
-    rememberPlayerName(savedName);
-    playerNameInput.value = savedName;
+    const result = await submitScore(name, score, level);
+    rememberPlayerName(result.name);
+    playerNameInput.value = result.name;
     scoreSubmitted = true;
-    scoreStatus.textContent = '기록되었습니다.';
+    scoreStatus.textContent = result.updated ? '새로운 최고 점수를 기록했습니다.' : '기존 최고 점수가 더 높습니다.';
     await refreshLeaderboard();
-  } catch {
-    scoreStatus.textContent = '저장하지 못했습니다. 다시 시도해주세요.';
+  } catch (error) {
+    scoreStatus.textContent = error?.message || '점수를 기록하지 못했습니다. 잠시 후 다시 시도해주세요.';
   } finally {
     submitButton.disabled = scoreSubmitted;
   }
@@ -976,22 +1004,50 @@ document.querySelector('#soundButton').addEventListener('click',e=>{
 });
 document.querySelector('#helpButton').addEventListener('click',()=>openTutorial(false));
 tutorialClose.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial(); });
+tutorialDismiss.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial(); });
 gameShell.addEventListener('contextmenu',e=>e.preventDefault());
 window.addEventListener('keydown',e=>{
   if (!tutorial.hidden) { if (e.key === 'Escape') { e.preventDefault(); closeTutorial(); } return; }
   const action=actionForKey(e);
   if(action) { e.preventDefault(); act(action); }
 });
-document.addEventListener('visibilitychange',()=>{
-  if(document.hidden && running) { pauseReactorTimer(); paused=true; autoPaused=true; stopMusic(); }
-  else if(autoPaused) {
-    autoPaused=false;
-    if (tutorial.hidden) { resumeReactorTimer(); paused=false; lastTime=performance.now(); startMusic(); }
+function pauseForInterruption() {
+  if (!running || autoPaused) return;
+  pauseReactorTimer();
+  paused = true;
+  autoPaused = true;
+  gestureStart = null;
+  stopMusic();
+}
+
+function resumeFromInterruption() {
+  if (!autoPaused || document.hidden) return;
+  autoPaused = false;
+  if (tutorial.hidden) {
+    resumeReactorTimer();
+    paused = false;
+    lastTime = performance.now();
+    startMusic();
   }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) pauseForInterruption();
+  else resumeFromInterruption();
 });
+window.addEventListener('pagehide', pauseForInterruption);
+window.addEventListener('pageshow', resumeFromInterruption);
 
 canvas.addEventListener('pointerdown',e=>{
   if (!running || paused) return;
+  if (!e.isPrimary) {
+    e.preventDefault();
+    return;
+  }
+  if (!canStartPointerGesture(e, gestureStart) && !isReactorActive(reactor)) {
+    e.preventDefault();
+    return;
+  }
   unlockAudioSession();
   const rect=canvas.getBoundingClientRect();
   if (isReactorActive(reactor)) {
@@ -1000,6 +1056,7 @@ canvas.addEventListener('pointerdown',e=>{
     const result = recolorConnectedGroup(board, x, y, COLORS.length, randomSource);
     if (result.changed) {
       board = result.board;
+      reactor = consumeReactorTouch(reactor);
       if (reactorGuideActive) {
         reactorGuideActive = false;
         boardFrame.classList.remove('reactor-guided');
@@ -1015,10 +1072,10 @@ canvas.addEventListener('pointerdown',e=>{
         ], {duration:180, easing:'cubic-bezier(.16,1,.3,1)'});
       }
       draw(); showGestureHint('색상 변환');
+      if (isReactorDepleted(reactor)) finishReactor();
     }
     e.preventDefault(); return;
   }
-  if (!['touch','pen'].includes(e.pointerType)) return;
   gestureStart = {
     x:e.clientX, y:e.clientY, time:performance.now(), id:e.pointerId,
     axis:null, appliedX:0, appliedY:0, moved:false,
@@ -1058,13 +1115,15 @@ canvas.addEventListener('pointerup',e=>{
   const duration=Math.max(1,performance.now()-gestureStart.time);
   const moved=gestureStart.moved;
   gestureStart=null;
+  e.preventDefault();
   if (!moved && Math.hypot(dx,dy) < 14 && duration < 280) { act('rotate'); showGestureHint('회전'); return; }
   if (Math.abs(dx)>Math.abs(dy) && moved) showGestureHint(dx<0?'왼쪽 이동':'오른쪽 이동');
   else if (dy < -45) { act('hold'); showGestureHint('조각 보관'); }
-  else if (dy > 70 && dy/duration > 1.1 && Math.abs(dx) < dy*.45) { act('drop'); showGestureHint('한 번에 내리기'); }
+  else if (dy > 70 && dy/duration > 1.1 && Math.abs(dx) < dy*.45) { act('drop'); showGestureHint('즉시 낙하'); }
   else if (dy > 24 && moved) showGestureHint('천천히 내리기');
 });
 canvas.addEventListener('pointercancel',()=>{ gestureStart=null; });
+canvas.addEventListener('lostpointercapture',()=>{ gestureStart=null; });
 document.addEventListener('gesturestart', event => event.preventDefault(), {passive:false});
 document.addEventListener('gesturechange', event => event.preventDefault(), {passive:false});
 

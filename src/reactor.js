@@ -1,20 +1,30 @@
-export const REACTOR_DURATION_MS = 5000;
+export const REACTOR_DURATION_MS = 3000;
+export const REACTOR_MAX_TOUCHES = 2;
 
 export function getReactorDuration(level) {
   const normalized = Math.min(1, (Math.max(1, level) - 1) / 19);
-  return Math.round(REACTOR_DURATION_MS - normalized * 2000);
+  return Math.round(REACTOR_DURATION_MS - normalized * 1000);
 }
 
 export function createReactorState() {
-  return { active: false, until: 0, pausedRemaining: 0 };
+  return { active: false, until: 0, pausedRemaining: 0, touchesRemaining: 0 };
 }
 
 export function isReactorActive(state) {
   return state.active;
 }
 
-export function startReactor(now, duration = REACTOR_DURATION_MS) {
-  return { active: true, until: now + duration, pausedRemaining: 0 };
+export function startReactor(now, duration = REACTOR_DURATION_MS, touches = REACTOR_MAX_TOUCHES) {
+  return { active: true, until: now + duration, pausedRemaining: 0, touchesRemaining: touches };
+}
+
+export function consumeReactorTouch(state) {
+  if (!state.active || state.touchesRemaining <= 0) return state;
+  return { ...state, touchesRemaining: state.touchesRemaining - 1 };
+}
+
+export function isReactorDepleted(state) {
+  return state.active && state.touchesRemaining <= 0;
 }
 
 export function pauseReactor(state, now) {
@@ -65,6 +75,7 @@ export function recolorConnectedGroup(board, x, y, colorCount, random = Math.ran
   }
 
   const color = Math.floor(random() * colorCount);
+  if (color === sourceColor) return { board, changed: false, cells, color };
   const nextBoard = board.map(row => [...row]);
   for (const [cx, cy] of cells) nextBoard[cy][cx] = color;
   return { board: nextBoard, changed: true, cells, color };

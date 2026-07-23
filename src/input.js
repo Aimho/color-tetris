@@ -21,3 +21,7 @@ export function dragStepTarget(distance, cellSize, threshold = .72) {
   const steps = 1 + Math.floor((magnitude - cellSize * threshold) / cellSize);
   return Math.sign(distance) * steps;
 }
+
+export function canStartPointerGesture({ pointerType, isPrimary = true }, currentGesture = null) {
+  return currentGesture === null && isPrimary && ['touch', 'pen'].includes(pointerType);
+}

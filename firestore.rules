@@ -1,6 +1,40 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function validScore(data) {
+      return data.keys().hasOnly(['name', 'score', 'level', 'createdAt', 'updatedAt'])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 12
+        && data.score is int
+        && data.score >= 0
+        && data.score <= 99999999
+        && data.level is int
+        && data.level >= 1
+        && data.level <= 999
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /best_scores/{userId} {
+      allow get: if request.auth != null;
+      allow list: if request.auth != null
+        && request.query.limit != null
+        && request.query.limit <= 50;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && validScore(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && validScore(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.score > resource.data.score;
+      allow delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
