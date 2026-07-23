@@ -25,6 +25,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const scores = collection(db, 'best_scores');
 const PENDING_SCORE_KEY = 'color-bomb-pending-best-score-v1';
+export const MAX_RECORDED_LEVEL = 999_999;
 let authPromise;
 
 export function normalizePlayerName(value) {
@@ -40,6 +41,12 @@ export function normalizeScore(value) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) return 0;
   return Math.max(0, Math.min(99_999_999, Math.round(numericValue)));
+}
+
+export function normalizeLevel(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 1;
+  return Math.max(1, Math.min(MAX_RECORDED_LEVEL, Math.round(numericValue)));
 }
 
 export function shouldReplaceBestScore(previousScore, nextScore) {
@@ -60,7 +67,7 @@ function readPendingScore(storage = globalThis.localStorage) {
     return {
       name,
       score: normalizeScore(value.score),
-      level: Math.max(1, Math.min(999, Math.round(value.level))),
+      level: normalizeLevel(value.level),
     };
   } catch {
     return null;
@@ -123,7 +130,7 @@ export async function submitScore(name, score, level) {
   const candidate = rememberPendingScore({
     name: normalizedName,
     score: normalizeScore(score),
-    level: Math.max(1, Math.min(999, Math.round(Number(level) || 1))),
+    level: normalizeLevel(level),
   });
 
   try {

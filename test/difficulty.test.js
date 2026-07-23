@@ -25,6 +25,6 @@ test('연쇄가 이어질수록 삭제 점수 배율이 크게 상승한다', ()
   assert.equal(getClearScore(6, 3), 180);
 });
 
-test('삭제 30칸마다 레벨이 상승하고 최대 20으로 제한된다', () => {
-  assert.deepEqual([getLevelForClears(0), getLevelForClears(30), getLevelForClears(9999)], [1,2,20]);
+test('삭제 20칸마다 최대치 없이 레벨이 상승한다', () => {
+  assert.deepEqual([getLevelForClears(0), getLevelForClears(20), getLevelForClears(9999)], [1,2,500]);
 });

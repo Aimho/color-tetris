@@ -1,30 +1,26 @@
-export const REACTOR_DURATION_MS = 3000;
-export const REACTOR_MAX_TOUCHES = 2;
+export const REACTOR_DURATION_MS = 10000;
+const DIRECTIONS = [
+  ['up', 0, -1],
+  ['down', 0, 1],
+  ['left', -1, 0],
+  ['right', 1, 0],
+];
 
 export function getReactorDuration(level) {
   const normalized = Math.min(1, (Math.max(1, level) - 1) / 19);
-  return Math.round(REACTOR_DURATION_MS - normalized * 1000);
+  return Math.round(REACTOR_DURATION_MS - normalized * 4000);
 }
 
 export function createReactorState() {
-  return { active: false, until: 0, pausedRemaining: 0, touchesRemaining: 0 };
+  return { active: false, until: 0, pausedRemaining: 0 };
 }
 
 export function isReactorActive(state) {
   return state.active;
 }
 
-export function startReactor(now, duration = REACTOR_DURATION_MS, touches = REACTOR_MAX_TOUCHES) {
-  return { active: true, until: now + duration, pausedRemaining: 0, touchesRemaining: touches };
-}
-
-export function consumeReactorTouch(state) {
-  if (!state.active || state.touchesRemaining <= 0) return state;
-  return { ...state, touchesRemaining: state.touchesRemaining - 1 };
-}
-
-export function isReactorDepleted(state) {
-  return state.active && state.touchesRemaining <= 0;
+export function startReactor(now, duration = REACTOR_DURATION_MS) {
+  return { active: true, until: now + duration, pausedRemaining: 0 };
 }
 
 export function pauseReactor(state, now) {
@@ -51,32 +47,45 @@ export function finishReactor() {
   return createReactorState();
 }
 
-export function recolorConnectedGroup(board, x, y, colorCount, random = Math.random) {
-  const sourceColor = board[y]?.[x];
-  if (sourceColor === null || sourceColor === undefined || colorCount < 1) {
-    return { board, changed: false, cells: [], color: null };
-  }
+export function getReactorArrowCount(removedCount) {
+  if (removedCount >= 12) return 3;
+  if (removedCount >= 9) return 2;
+  return removedCount >= 6 ? 1 : 0;
+}
 
+function occupiedInTargetLine(board, matchedKeys, x, y, dx, dy) {
   const rows = board.length;
   const cols = board[0]?.length || 0;
-  const cells = [];
-  const seen = new Set([`${x},${y}`]);
-  const stack = [[x,y]];
-  while (stack.length) {
-    const [cx, cy] = stack.pop();
-    cells.push([cx, cy]);
-    for (const [nx, ny] of [[cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]]) {
-      const key = `${nx},${ny}`;
-      if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && !seen.has(key) && board[ny][nx] === sourceColor) {
-        seen.add(key);
-        stack.push([nx,ny]);
-      }
-    }
+  const targetX = x + dx;
+  const targetY = y + dy;
+  if (dx === 0) {
+    return targetY >= 0 && targetY < rows
+      && board[targetY].some((cell, nx) => cell !== null && !matchedKeys.has(`${nx},${targetY}`));
+  }
+  if (targetX < 0 || targetX >= cols) return false;
+  return board.some((row, ny) => row[targetX] !== null && !matchedKeys.has(`${targetX},${ny}`));
+}
+
+export function addReactorArrows(matchedKeys, board, eventBoard, random = Math.random) {
+  const candidates = [...matchedKeys]
+    .map(key => {
+      const [x, y] = key.split(',').map(Number);
+      const directions = DIRECTIONS.filter(([, dx, dy]) => occupiedInTargetLine(board, matchedKeys, x, y, dx, dy));
+      return { key, x, y, directions, hasArrow:eventBoard[y]?.[x] != null };
+    })
+    .filter(candidate => !candidate.hasArrow && candidate.directions.length);
+  const targetCount = Math.min(getReactorArrowCount(matchedKeys.size), candidates.length);
+  const nextEventBoard = eventBoard.map(row => [...row]);
+  const arrows = [];
+
+  for (let index = 0; index < targetCount; index++) {
+    const candidateIndex = Math.floor(random() * candidates.length);
+    const [candidate] = candidates.splice(candidateIndex, 1);
+    const directionIndex = Math.floor(random() * candidate.directions.length);
+    const [direction] = candidate.directions[directionIndex];
+    nextEventBoard[candidate.y][candidate.x] = direction;
+    arrows.push({ key: candidate.key, direction });
   }
 
-  const color = Math.floor(random() * colorCount);
-  if (color === sourceColor) return { board, changed: false, cells, color };
-  const nextBoard = board.map(row => [...row]);
-  for (const [cx, cy] of cells) nextBoard[cy][cx] = color;
-  return { board: nextBoard, changed: true, cells, color };
+  return { eventBoard: nextEventBoard, arrows };
 }

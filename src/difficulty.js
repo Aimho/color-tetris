@@ -12,7 +12,7 @@ export function canResetLock(isGrounded, resetCount) {
 }
 
 export function getLevelForClears(clearedCells) {
-  return Math.min(20, 1 + Math.floor(Math.max(0, clearedCells) / 30));
+  return 1 + Math.floor(Math.max(0, clearedCells) / 20);
 }
 
 export function getClearIntensity(removedCount) {

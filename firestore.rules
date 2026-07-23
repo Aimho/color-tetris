@@ -11,7 +11,7 @@ service cloud.firestore {
         && data.score <= 99999999
         && data.level is int
         && data.level >= 1
-        && data.level <= 999
+        && data.level <= 999999
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }

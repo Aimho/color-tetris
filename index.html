@@ -58,7 +58,7 @@
           <div class="level-callout" id="levelCallout" aria-live="polite"></div>
           <div class="gesture-hint" id="gestureHint" aria-live="polite">탭 회전 · 드래그 이동</div>
           <div class="reactor-surge" id="reactorStatus" role="status" aria-label="리액터 발동" hidden>
-            <span>REACTOR</span><strong id="reactorValue">3</strong><small id="reactorInstruction">TAP A COLOR GROUP</small>
+            <span>REACTOR</span><strong id="reactorValue">10</strong><small id="reactorInstruction">ARROWS ON CLEAR</small>
           </div>
           <canvas id="gameCanvas" width="340" height="680" aria-label="COLOR BOMB 게임 보드"></canvas>
           <div class="game-overlay visible" id="overlay">
@@ -123,13 +123,28 @@
           <button class="tutorial-dismiss" id="tutorialDismiss" type="button" aria-label="게임 방법 닫기">×</button>
         </div>
         <h2 id="tutorialTitle">조작법을<br />익혀볼까요?</h2>
-        <div class="tutorial-demo" aria-label="조각을 움직여 같은 색 블록 6칸을 연결하고 리액터로 색을 바꾸는 방법">
+        <div class="tutorial-demo" aria-label="같은 색 블록 6칸 이상이 연결되면 폭발하고, 리액터 중에는 폭발 셀에 화살표가 생성되는 방법">
           <div class="demo-board" aria-hidden="true">
-            <i class="demo-cell c1"></i><i class="demo-cell c2"></i><i class="demo-cell c3"></i>
-            <i class="demo-cell c4"></i><i class="demo-cell c5"></i><i class="demo-cell c6"></i>
-            <b class="demo-piece"><i></i><i></i></b><em class="demo-finger">●</em><span class="demo-wave"></span>
+            <div class="demo-scene demo-clear-scene">
+              <strong class="demo-mode">CONNECT 6+</strong>
+              <span class="demo-instruction">같은 색 6개 이상 연결</span>
+              <div class="demo-cluster demo-clear-cluster">
+                <i></i><i></i><i></i><i></i><i></i><i></i>
+                <span class="demo-shards"><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span>
+              </div>
+              <em class="demo-result">폭발!</em>
+            </div>
+            <div class="demo-scene demo-reactor-scene">
+              <strong class="demo-mode">REACTOR</strong>
+              <span class="demo-instruction">제한 시간 안에 색상 폭발</span>
+              <div class="demo-cluster demo-reactor-cluster">
+                <i></i><i data-arrow="→"></i><i></i><i></i><i data-arrow="↑"></i><i></i>
+              </div>
+              <span class="demo-reactor-beam"></span>
+              <em class="demo-result">화살표 연쇄!</em>
+            </div>
           </div>
-          <div class="demo-sequence" aria-hidden="true"><b>MOVE</b><b>CONNECT 6+</b><b>REACTOR</b></div>
+          <div class="demo-tabs" aria-hidden="true"><b>6+ 연결 → 폭발</b><b>리액터 폭발 → 화살표</b></div>
         </div>
         <div class="tutorial-actions tutorial-mobile">
           <span><b>탭</b> 조각 회전</span><span><b>좌우 드래그</b> 조각 이동</span><span><b>아래 드래그</b> 천천히 내리기</span><span><b>위로 밀기</b> 조각 보관</span><span><b>빠른 아래 스와이프</b> 즉시 낙하</span>
@@ -138,9 +153,17 @@
           <span><b>← → / ↓</b> 이동 · 내리기</span><span><b>↑ / W·X·Z</b> 조각 회전</span><span><b>SHIFT / C</b> 조각 보관</span><span><b>SPACE</b> 즉시 낙하</span>
         </div>
         <div class="event-guide"><strong>↑ ↓ ← →</strong><span>화살표 블록이 사라지면 가리키는 방향의 인접 행·열을 모두 제거합니다.</span></div>
-        <div class="event-guide"><strong>REACTOR</strong><span>쌓인 색상 그룹을 터치해 색을 바꾸세요. 최대 2회 사용할 수 있고, 첫 터치 전에는 시간이 흐르지 않습니다.</span></div>
+        <div class="event-guide"><strong>REACTOR</strong><span>제한 시간 안에 색상 그룹을 폭발시키면 삭제량에 따라 화살표가 최대 3개 생성됩니다.</span></div>
         <button class="tutorial-close" id="tutorialClose">READY <span>▶</span></button>
         <small>이 안내는 처음 한 번만 표시됩니다. ? 버튼에서 다시 볼 수 있습니다.</small>
+      </div>
+    </section>
+    <section class="resume-dialog" id="resumeDialog" role="dialog" aria-modal="true" aria-labelledby="resumeTitle" hidden>
+      <div class="resume-card">
+        <p class="overlay-kicker">GAME PAUSED</p>
+        <h2 id="resumeTitle">잠시<br />멈췄습니다</h2>
+        <p>준비되면 이어서 플레이하세요.</p>
+        <button id="resumeButton" type="button">계속하기 <span>▶</span></button>
       </div>
     </section>
     <script type="module" src="/src/main.js"></script>

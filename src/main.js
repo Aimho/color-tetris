@@ -1,13 +1,13 @@
 import './style.css';
 import { actionForKey, canStartPointerGesture, dragStepTarget } from './input.js';
-import { findColorGroups, groupSizesByCell, hasOccupiedCell } from './board.js';
+import { findColorGroups, groupSizesByCell } from './board.js';
 import { configureAudioSession, createAudioContext, primeLegacyMediaChannel, resumeIfSuspended, unlockAudioContext } from './audio.js';
 import { createPieceColors, createPieceEvent, rotateCellClockwise, rotateSquareCells, wallKickOffsets } from './pieces.js';
 import { MusicEngine } from './music.js';
 import { canResetLock, getClearIntensity, getClearScore, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
 import { resolveArrowEffects } from './events.js';
 import { chargeReactor, finishRun, getPace, readProfile, unlockedThemes } from './progression.js';
-import { consumeReactorTouch, createReactorState, finishReactor as finishReactorState, getReactorDuration, isReactorActive, isReactorDepleted, isReactorExpired, pauseReactor, reactorSecondsLeft, recolorConnectedGroup, resumeReactor, startReactor } from './reactor.js';
+import { addReactorArrows, createReactorState, finishReactor as finishReactorState, getReactorDuration, isReactorActive, isReactorExpired, pauseReactor, reactorSecondsLeft, resumeReactor, startReactor } from './reactor.js';
 import { setupPwa } from './pwa.js';
 
 const COLS = 10;
@@ -42,6 +42,8 @@ const tutorial = document.querySelector('#tutorial');
 const tutorialSheet = document.querySelector('.tutorial-sheet');
 const tutorialClose = document.querySelector('#tutorialClose');
 const tutorialDismiss = document.querySelector('#tutorialDismiss');
+const resumeDialog = document.querySelector('#resumeDialog');
+const resumeButton = document.querySelector('#resumeButton');
 const gestureHint = document.querySelector('#gestureHint');
 const gameShell = document.querySelector('.game-shell');
 const scoreRecord = document.querySelector('#scoreRecord');
@@ -77,7 +79,6 @@ let scoreSubmitted = false;
 let leaderboardApiPromise;
 let randomSource = Math.random;
 let reactorCharge = 0, reactor = createReactorState(), maxChain = 0;
-let reactorGuideActive = false;
 let profile = readProfile(), pace = getPace(profile);
 let reactorRenderKey = '';
 
@@ -150,7 +151,7 @@ function reset() {
   shapeBag = []; colorBag = []; resolving = false; running = true; paused = false; piecesSpawned = 0;
   piecesSinceMono = 0; piecesSinceEvent = 0; particles = []; arrowBeams = []; clearingCells = new Set();
   reactorCharge = 0; reactor = createReactorState(); maxChain = 0;
-  boardFrame.classList.remove('reactor-active', 'reactor-guided'); reactorGuideActive = false;
+  boardFrame.classList.remove('reactor-active');
   music?.setReactor(false);
   refillQueue(); spawn(); updateStats();
   overlay.classList.remove('visible', 'game-over');
@@ -234,6 +235,11 @@ async function resolveBoard() {
     chain++;
     maxChain = Math.max(maxChain, chain);
     const matched = new Set(groups.flat().map(([x,y]) => `${x},${y}`));
+    const reactorBoostedClear = isReactorActive(reactor);
+    if (reactorBoostedClear) {
+      const reactorResult = addReactorArrows(matched, board, eventBoard, randomSource);
+      eventBoard = reactorResult.eventBoard;
+    }
     const arrowResult = resolveArrowEffects(matched, board, eventBoard);
     const {removed, beams} = arrowResult;
     const arrowRemoved = new Set(beams.flatMap(beam => beam.cells));
@@ -254,7 +260,7 @@ async function resolveBoard() {
     const earnedScore = getClearScore(removed.size, chain);
     score += earnedScore;
     lines += removed.size;
-    reactorCharge = chargeReactor(reactorCharge, matched.size, chain, level);
+    if (!reactorBoostedClear) reactorCharge = chargeReactor(reactorCharge, matched.size, chain, level);
     updateReactor();
     const previousLevel = level;
     level = getLevelForClears(lines);
@@ -341,7 +347,7 @@ function drawConnectionCue(context, x, y, size, connected) {
 }
 
 function connectionPreview() {
-  if (!active || !running || resolving || isReactorActive(reactor)) return new Map();
+  if (!active || !running || resolving) return new Map();
   const preview = board.map(row => [...row]);
   for (const cell of cellsOf(active)) if (cell.y >= 0 && cell.y < ROWS) preview[cell.y][cell.x] = cell.color;
   return groupSizesByCell(findColorGroups(preview, 4));
@@ -540,46 +546,41 @@ function updateStats() { scoreEl.textContent=String(score).padStart(6,'0'); leve
 function updateReactor() {
   const activeReactor = isReactorActive(reactor);
   const value = activeReactor ? reactorSecondsLeft(reactor, performance.now()) : 0;
-  const renderKey = `${activeReactor}:${value}:${reactor.touchesRemaining}:${reactorGuideActive}`;
+  const renderKey = `${activeReactor}:${value}`;
   if (renderKey === reactorRenderKey) return;
   reactorRenderKey = renderKey;
   reactorStatus.hidden = !activeReactor;
-  reactorValue.textContent = reactorGuideActive ? 'TAP' : String(value);
-  reactorInstruction.textContent = reactorGuideActive ? 'TAP A COLOR GROUP' : `${reactor.touchesRemaining} TOUCHES LEFT`;
+  reactorValue.textContent = String(value);
+  reactorInstruction.textContent = 'ARROWS ON CLEAR';
   reactorStatus.setAttribute('aria-label', activeReactor
-    ? reactorGuideActive ? '색상 그룹을 터치하세요' : `리액터 ${value}초, 색상 변경 ${reactor.touchesRemaining}회 남음`
+    ? `리액터 ${value}초, 폭발 시 화살표 생성`
     : '리액터 대기');
 }
 
 function beginReactor() {
   if (!running || resolving || isReactorActive(reactor) || reactorCharge < 100) return;
-  if (!hasOccupiedCell(board)) { spawn(); return; }
   const now = performance.now();
   reactor = startReactor(now, getReactorDuration(level));
-  reactorGuideActive = !reactorGuideSeen();
-  if (reactorGuideActive) reactor = pauseReactor(reactor, now);
-  active = null;
+  reactorCharge = 0;
   gestureStart = null;
-  callout.textContent = 'REACTOR · READY';
+  callout.textContent = 'REACTOR · RUSH';
   callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
   boardFrame.classList.add('reactor-active');
-  boardFrame.classList.toggle('reactor-guided', reactorGuideActive);
   music?.setReactor(true);
   reactorStartSound();
   levelUpSound(20); updateReactor();
+  spawn();
 }
 
 function finishReactor() {
   if (!isReactorActive(reactor)) return;
   reactor = finishReactorState(reactor);
-  reactorCharge = 0;
-  boardFrame.classList.remove('reactor-active', 'reactor-guided'); reactorGuideActive = false;
+  boardFrame.classList.remove('reactor-active');
   music?.setReactor(false);
   reactorFinishSound();
-  callout.textContent = 'REACTOR · CHAIN';
+  callout.textContent = 'REACTOR · END';
   callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
   updateReactor();
-  resolveBoard();
 }
 
 function pauseReactorTimer() {
@@ -587,7 +588,7 @@ function pauseReactorTimer() {
 }
 
 function resumeReactorTimer() {
-  if (!reactorGuideActive) reactor = resumeReactor(reactor, performance.now());
+  reactor = resumeReactor(reactor, performance.now());
 }
 
 function renderMeta() {
@@ -626,15 +627,6 @@ function rememberTutorial() {
   try { localStorage.setItem('color-tetrix-tutorial-seen', '1'); } catch { /* private mode fallback */ }
 }
 
-function reactorGuideSeen() {
-  try { return localStorage.getItem('color-tetrix-reactor-guide-seen') === '1'; }
-  catch { return false; }
-}
-
-function rememberReactorGuide() {
-  try { localStorage.setItem('color-tetrix-reactor-guide-seen', '1'); } catch { /* private mode fallback */ }
-}
-
 function openTutorial(startsGame = false) {
   tutorialStartsGame = startsGame;
   tutorialOpener = document.activeElement;
@@ -666,9 +658,13 @@ function showGestureHint(message) {
 
 function endGame() {
   running=false; resolving=false;
+  reactor = finishReactorState(reactor);
+  boardFrame.classList.remove('reactor-active');
+  music?.setReactor(false);
+  updateReactor();
   stopMusic(.32);
   overlayTitle.innerHTML='연쇄가<br />멈췄습니다';
-  overlayCopy.textContent=`최종 점수 ${score.toLocaleString()}점 · 새로운 연쇄에 도전하시겠습니까?`;
+  overlayCopy.textContent=`최종 점수 ${score.toLocaleString()}점 · LV ${level} · 새로운 연쇄에 도전하시겠습니까?`;
   document.querySelector('#startButton').innerHTML='RETRY <span>↻</span>';
   shareButton.hidden = false;
   rankingButton.hidden = true;
@@ -690,7 +686,7 @@ function loop(time) {
   updateParticles(Math.min(dt, 32));
   if (isReactorActive(reactor)) {
     if (isReactorExpired(reactor, time)) finishReactor();
-    updateReactor(); draw(); requestAnimationFrame(loop); return;
+    updateReactor();
   }
   if (!resolving) {
     if (collides({...active, y:active.y+1})) {
@@ -761,21 +757,6 @@ function reactorStartSound() {
     oscillator.connect(gain).connect(context.destination);
     oscillator.start(now); oscillator.stop(now + .48);
   }
-}
-
-function reactorTouchSound(cellCount) {
-  if (muted) return;
-  const context = ensureAudio();
-  if (!context) return;
-  const now = context.currentTime;
-  const oscillator = context.createOscillator(), gain = context.createGain();
-  oscillator.type = 'square';
-  oscillator.frequency.setValueAtTime(260 + Math.min(cellCount, 12) * 28, now);
-  oscillator.frequency.exponentialRampToValueAtTime(920, now + .11);
-  gain.gain.setValueAtTime(.065, now);
-  gain.gain.exponentialRampToValueAtTime(.001, now + .14);
-  oscillator.connect(gain).connect(context.destination);
-  oscillator.start(now); oscillator.stop(now + .14);
 }
 
 function reactorFinishSound() {
@@ -870,24 +851,48 @@ function rememberPlayerName(name) {
   catch { /* private mode fallback */ }
 }
 
+function showLeaderboardSkeleton(targetList) {
+  const rows = Array.from({ length: 6 }, (_, index) => {
+    const item = document.createElement('li');
+    item.className = 'leaderboard-skeleton';
+    item.style.setProperty('--skeleton-delay', `${index * 70}ms`);
+    item.setAttribute('aria-hidden', 'true');
+    for (const className of ['skeleton-name', 'skeleton-level', 'skeleton-score']) {
+      const bar = document.createElement('span');
+      bar.className = `skeleton-bar ${className}`;
+      item.append(bar);
+    }
+    return item;
+  });
+  targetList.setAttribute('aria-busy', 'true');
+  targetList.setAttribute('aria-label', 'TOP 50 랭킹을 불러오는 중');
+  targetList.replaceChildren(...rows);
+}
+
 async function refreshLeaderboard(targetList = leaderboardList) {
   leaderboardTitle.textContent = 'TOP 50';
-  targetList.innerHTML = '<li><strong>랭킹을 불러오는 중…</strong></li>';
+  showLeaderboardSkeleton(targetList);
   try {
     const { loadTopScores } = await getLeaderboardApi();
     const entries = await loadTopScores();
     targetList.replaceChildren(...entries.map(entry => {
       const item = document.createElement('li');
       const name = document.createElement('strong');
+      const recordedLevel = document.createElement('span');
       const points = document.createElement('span');
       name.textContent = entry.name;
+      recordedLevel.className = 'leaderboard-level';
+      recordedLevel.textContent = Number.isFinite(entry.level) ? `LV ${entry.level}` : 'LV —';
       points.textContent = String(entry.score).padStart(6, '0');
-      item.append(name, points);
+      item.append(name, recordedLevel, points);
       return item;
     }));
     if (!entries.length) targetList.innerHTML = '<li><strong>아직 등록된 기록이 없습니다.</strong></li>';
   } catch {
     targetList.innerHTML = '<li><strong>랭킹을 불러오지 못했습니다.</strong></li>';
+  } finally {
+    targetList.removeAttribute('aria-busy');
+    targetList.removeAttribute('aria-label');
   }
 }
 
@@ -940,7 +945,7 @@ function softDrop() {
 }
 
 function act(action) {
-  if (paused || isReactorActive(reactor)) return false;
+  if (paused) return false;
   if(action==='left') return move(-1,0,true);
   if(action==='right') return move(1,0,true);
   if(action==='rotate') { rotate(); return true; }
@@ -1007,12 +1012,13 @@ tutorialClose.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial
 tutorialDismiss.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial(); });
 gameShell.addEventListener('contextmenu',e=>e.preventDefault());
 window.addEventListener('keydown',e=>{
+  if (!resumeDialog.hidden) return;
   if (!tutorial.hidden) { if (e.key === 'Escape') { e.preventDefault(); closeTutorial(); } return; }
   const action=actionForKey(e);
   if(action) { e.preventDefault(); act(action); }
 });
 function pauseForInterruption() {
-  if (!running || autoPaused) return;
+  if (!running || autoPaused || !tutorial.hidden) return;
   pauseReactorTimer();
   paused = true;
   autoPaused = true;
@@ -1020,23 +1026,32 @@ function pauseForInterruption() {
   stopMusic();
 }
 
-function resumeFromInterruption() {
-  if (!autoPaused || document.hidden) return;
+function requestResumeAfterInterruption() {
+  if (!autoPaused || document.hidden || !tutorial.hidden) return;
+  gameShell.inert = true;
+  resumeDialog.hidden = false;
+  resumeButton.focus({ preventScroll: true });
+}
+
+function continueAfterInterruption() {
+  if (!autoPaused) return;
+  unlockAudioSession();
+  resumeDialog.hidden = true;
+  gameShell.inert = false;
   autoPaused = false;
-  if (tutorial.hidden) {
-    resumeReactorTimer();
-    paused = false;
-    lastTime = performance.now();
-    startMusic();
-  }
+  resumeReactorTimer();
+  paused = false;
+  lastTime = performance.now();
+  startMusic();
 }
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) pauseForInterruption();
-  else resumeFromInterruption();
+  else requestResumeAfterInterruption();
 });
 window.addEventListener('pagehide', pauseForInterruption);
-window.addEventListener('pageshow', resumeFromInterruption);
+window.addEventListener('pageshow', requestResumeAfterInterruption);
+resumeButton.addEventListener('click', continueAfterInterruption);
 
 canvas.addEventListener('pointerdown',e=>{
   if (!running || paused) return;
@@ -1044,38 +1059,12 @@ canvas.addEventListener('pointerdown',e=>{
     e.preventDefault();
     return;
   }
-  if (!canStartPointerGesture(e, gestureStart) && !isReactorActive(reactor)) {
+  if (!canStartPointerGesture(e, gestureStart)) {
     e.preventDefault();
     return;
   }
   unlockAudioSession();
   const rect=canvas.getBoundingClientRect();
-  if (isReactorActive(reactor)) {
-    const x = Math.floor((e.clientX - rect.left) / rect.width * COLS);
-    const y = Math.floor((e.clientY - rect.top) / rect.height * ROWS);
-    const result = recolorConnectedGroup(board, x, y, COLORS.length, randomSource);
-    if (result.changed) {
-      board = result.board;
-      reactor = consumeReactorTouch(reactor);
-      if (reactorGuideActive) {
-        reactorGuideActive = false;
-        boardFrame.classList.remove('reactor-guided');
-        reactor = resumeReactor(reactor, performance.now());
-        rememberReactorGuide(); updateReactor();
-      }
-      reactorTouchSound(result.cells.length);
-      if (!prefersReducedMotion) {
-        reactorStatus.animate([
-          {opacity:1, transform:'scale(1)'},
-          {opacity:.42, transform:'scale(1.08)'},
-          {opacity:1, transform:'scale(1)'},
-        ], {duration:180, easing:'cubic-bezier(.16,1,.3,1)'});
-      }
-      draw(); showGestureHint('색상 변환');
-      if (isReactorDepleted(reactor)) finishReactor();
-    }
-    e.preventDefault(); return;
-  }
   gestureStart = {
     x:e.clientX, y:e.clientY, time:performance.now(), id:e.pointerId,
     axis:null, appliedX:0, appliedY:0, moved:false,
