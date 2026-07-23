@@ -10,6 +10,24 @@ const KEY_ACTIONS = {
   shift: 'hold', c: 'hold', arrowdown: 'down',
 };
 
+export const CANVAS_NATIVE_UI_EVENTS = Object.freeze([
+  'contextmenu',
+  'selectstart',
+  'dragstart',
+  'dragover',
+  'drop',
+  'dblclick',
+  'auxclick',
+  'mousedown',
+  'wheel',
+  'touchstart',
+  'touchmove',
+  'gesturestart',
+  'gesturechange',
+  'gestureend',
+  'webkitmouseforcewillbegin',
+]);
+
 export function actionForKey({ code, key }) {
   return CODE_ACTIONS[code] ?? KEY_ACTIONS[key?.toLowerCase?.()] ?? null;
 }
@@ -24,4 +42,20 @@ export function dragStepTarget(distance, cellSize, threshold = .72) {
 
 export function canStartPointerGesture({ pointerType, isPrimary = true }, currentGesture = null) {
   return currentGesture === null && isPrimary && ['touch', 'pen'].includes(pointerType);
+}
+
+export function suppressNativeCanvasUi(event) {
+  event.preventDefault();
+}
+
+export function installCanvasInputGuards(target) {
+  const options = { passive: false };
+  for (const eventType of CANVAS_NATIVE_UI_EVENTS) {
+    target.addEventListener(eventType, suppressNativeCanvasUi, options);
+  }
+  return () => {
+    for (const eventType of CANVAS_NATIVE_UI_EVENTS) {
+      target.removeEventListener(eventType, suppressNativeCanvasUi, options);
+    }
+  };
 }

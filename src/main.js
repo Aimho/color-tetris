@@ -1,5 +1,5 @@
 import './style.css';
-import { actionForKey, canStartPointerGesture, dragStepTarget } from './input.js';
+import { actionForKey, canStartPointerGesture, dragStepTarget, installCanvasInputGuards } from './input.js';
 import { findColorGroups, groupSizesByCell } from './board.js';
 import { configureAudioSession, createAudioContext, primeLegacyMediaChannel, resumeIfSuspended, unlockAudioContext } from './audio.js';
 import { createPieceColors, createPieceEvent, rotateCellClockwise, rotateSquareCells, wallKickOffsets } from './pieces.js';
@@ -81,6 +81,7 @@ let randomSource = Math.random;
 let reactorCharge = 0, reactor = createReactorState(), maxChain = 0;
 let profile = readProfile(), pace = getPace(profile);
 let reactorRenderKey = '';
+let animationFrameId = null;
 
 buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 
@@ -142,6 +143,7 @@ function spawn() {
 }
 
 function reset() {
+  stopLoop();
   runId++;
   randomSource = Math.random;
   document.body.classList.add('playing');
@@ -163,7 +165,7 @@ function reset() {
   lastTime = performance.now(); dropTimer = 0; lockTimer = 0;
   startMusic();
   updateReactor();
-  requestAnimationFrame(loop);
+  startLoop();
 }
 
 function cellsOf(piece) { return piece.cells.map(c => ({ x: c.x + piece.x, y: c.y + piece.y, color: c.color, event: c.event })); }
@@ -206,7 +208,7 @@ function hardDrop() {
   while (move(0, 1)) distance++;
   score += distance * 2;
   updateStats();
-  document.querySelector('#boardFrame').animate([
+  boardFrame.animate([
     {transform:'scaleY(1)'}, {transform:'scaleY(.985)'}, {transform:'scaleY(1)'}
   ], {duration:150, easing:'cubic-bezier(.16,1,.3,1)'});
   lock();
@@ -457,14 +459,16 @@ function showLevelUp(nextLevel) {
 }
 
 function updateParticles(dt) {
+  let aliveCount = 0;
   for (const particle of particles) {
     particle.age += dt;
     particle.x += particle.vx * dt;
     particle.y += particle.vy * dt;
     particle.vy += .00035 * dt;
     particle.rotation += particle.spin * dt;
+    if (particle.age < particle.life) particles[aliveCount++] = particle;
   }
-  particles = particles.filter(particle => particle.age < particle.life);
+  particles.length = aliveCount;
 }
 
 function drawParticles() {
@@ -630,7 +634,7 @@ function rememberTutorial() {
 function openTutorial(startsGame = false) {
   tutorialStartsGame = startsGame;
   tutorialOpener = document.activeElement;
-  if (running) { pauseReactorTimer(); paused = true; stopMusic(); }
+  if (running) { pauseReactorTimer(); paused = true; stopLoop(); stopMusic(); }
   gameShell.inert = true;
   tutorial.hidden = false;
   tutorialSheet.scrollTop = 0;
@@ -643,7 +647,7 @@ function closeTutorial() {
   gameShell.inert = false;
   rememberTutorial();
   if (startsGame) reset();
-  else if (running) { resumeReactorTimer(); paused = false; lastTime = performance.now(); startMusic(); }
+  else if (running) { resumeReactorTimer(); paused = false; lastTime = performance.now(); startLoop(); startMusic(); }
   tutorialStartsGame = false;
   if (!startsGame) tutorialOpener?.focus?.();
   tutorialOpener = null;
@@ -658,6 +662,7 @@ function showGestureHint(message) {
 
 function endGame() {
   running=false; resolving=false;
+  stopLoop();
   reactor = finishReactorState(reactor);
   boardFrame.classList.remove('reactor-active');
   music?.setReactor(false);
@@ -679,9 +684,21 @@ function endGame() {
   tone(90,.22);
 }
 
+function startLoop() {
+  if (!running || paused || animationFrameId !== null) return;
+  animationFrameId = requestAnimationFrame(loop);
+}
+
+function stopLoop() {
+  if (animationFrameId === null) return;
+  cancelAnimationFrame(animationFrameId);
+  animationFrameId = null;
+}
+
 function loop(time) {
+  animationFrameId = null;
   if (!running) { draw(); return; }
-  if (paused) { lastTime=time; draw(); requestAnimationFrame(loop); return; }
+  if (paused) return;
   const dt=time-lastTime; lastTime=time; dropTimer+=dt;
   updateParticles(Math.min(dt, 32));
   if (isReactorActive(reactor)) {
@@ -697,7 +714,7 @@ function loop(time) {
       if (dropTimer > getDropInterval(level) / pace.multiplier) { move(0,1); dropTimer=0; }
     }
   }
-  updateReactor(); draw(); requestAnimationFrame(loop);
+  updateReactor(); draw(); startLoop();
 }
 
 let audio, music, legacyMediaPrimed = false;
@@ -1011,6 +1028,7 @@ document.querySelector('#helpButton').addEventListener('click',()=>openTutorial(
 tutorialClose.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial(); });
 tutorialDismiss.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial(); });
 gameShell.addEventListener('contextmenu',e=>e.preventDefault());
+installCanvasInputGuards(canvas);
 window.addEventListener('keydown',e=>{
   if (!resumeDialog.hidden) return;
   if (!tutorial.hidden) { if (e.key === 'Escape') { e.preventDefault(); closeTutorial(); } return; }
@@ -1021,6 +1039,7 @@ function pauseForInterruption() {
   if (!running || autoPaused || !tutorial.hidden) return;
   pauseReactorTimer();
   paused = true;
+  stopLoop();
   autoPaused = true;
   gestureStart = null;
   stopMusic();
@@ -1042,6 +1061,7 @@ function continueAfterInterruption() {
   resumeReactorTimer();
   paused = false;
   lastTime = performance.now();
+  startLoop();
   startMusic();
 }
 
@@ -1113,8 +1133,6 @@ canvas.addEventListener('pointerup',e=>{
 });
 canvas.addEventListener('pointercancel',()=>{ gestureStart=null; });
 canvas.addEventListener('lostpointercapture',()=>{ gestureStart=null; });
-document.addEventListener('gesturestart', event => event.preventDefault(), {passive:false});
-document.addEventListener('gesturechange', event => event.preventDefault(), {passive:false});
 
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
 draw(); drawRacks(); updateStats(); updateReactor(); renderMeta();

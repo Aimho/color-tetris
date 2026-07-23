@@ -189,15 +189,38 @@ body:not(.playing) .reactor-surge {
 }
 
 body:not(.playing) .play-area { display: block; }
+body:not(.playing) .game-shell {
+  width: 100%;
+  max-width: none;
+}
+body:not(.playing) .brand-row,
+body:not(.playing) footer {
+  position: relative;
+  z-index: 4;
+}
+body:not(.playing) footer {
+  align-self: end;
+  min-height: 14px;
+}
 body:not(.playing) .board-frame {
   width: 100%;
-  height: min(58dvh, 520px);
+  height: 100%;
+  min-height: 0;
   aspect-ratio: auto;
   background: transparent;
   box-shadow: none;
 }
 body:not(.playing) .board-frame::after { display: none; }
-body:not(.playing) .game-overlay { background: transparent; }
+body:not(.playing) .game-overlay {
+  position: fixed;
+  inset: 0;
+  padding:
+    max(82px, calc(env(safe-area-inset-top) + 70px))
+    max(22px, env(safe-area-inset-right))
+    max(58px, calc(env(safe-area-inset-bottom) + 44px))
+    max(22px, env(safe-area-inset-left));
+  background: transparent;
+}
 
 .board-frame {
   position: relative;
@@ -242,6 +265,11 @@ body:not(.playing) .game-overlay { background: transparent; }
   height: 100%;
   display: block;
   touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   -webkit-user-drag: none;
 }
 
@@ -608,6 +636,18 @@ footer span:last-child { text-align: right; }
 }
 .demo-clear-scene { animation: demo-scene-clear 10s linear infinite; }
 .demo-clear-cluster > i { animation: demo-clear-block 10s cubic-bezier(.16,1,.3,1) infinite; }
+.demo-clear-cluster > i.demo-drop-cell { animation-name: demo-drop-block; }
+.demo-drop-label {
+  position: absolute;
+  left: calc(50% - 43px);
+  bottom: 102px;
+  color: var(--acid);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  opacity: 0;
+  animation: demo-drop-label 10s ease-out infinite;
+}
 .demo-result {
   position: absolute;
   right: 14px;
@@ -678,8 +718,10 @@ footer span:last-child { text-align: right; }
 .tutorial-sheet > small { display: block; margin-top: 16px; color: var(--muted); font: 12px/1.5 system-ui, sans-serif; text-align: center; }
 
 @keyframes demo-scene-clear { 0%,44% { opacity: 1; } 49%,95% { opacity: 0; } 100% { opacity: 1; } }
-@keyframes demo-clear-block { 0%,16% { opacity: .58; transform: scale(.9); } 23% { opacity: 1; transform: scale(1.08); } 31% { opacity: 1; transform: scale(1); } 39%,100% { opacity: 0; transform: scale(1.34); } }
-@keyframes demo-clear-result { 0%,24% { opacity: 0; transform: translateY(5px); } 31%,39% { opacity: 1; transform: translateY(0); } 45%,100% { opacity: 0; transform: translateY(-5px); } }
+@keyframes demo-clear-block { 0%,17% { opacity: .58; transform: scale(.92); } 22% { opacity: 1; transform: scale(1.08); } 29% { opacity: 1; transform: scale(1); } 36%,100% { opacity: 0; transform: scale(1.34); } }
+@keyframes demo-drop-block { 0%,6% { opacity: .9; transform: translateY(-68px) scale(.96); } 18% { opacity: 1; transform: translateY(0) scale(1); } 22% { opacity: 1; transform: translateY(0) scale(1.08); } 29% { opacity: 1; transform: translateY(0) scale(1); } 36%,100% { opacity: 0; transform: translateY(0) scale(1.34); } }
+@keyframes demo-drop-label { 0%,5% { opacity: 0; transform: translateY(-8px); } 8%,15% { opacity: 1; transform: translateY(0); } 20%,100% { opacity: 0; transform: translateY(8px); } }
+@keyframes demo-clear-result { 0%,24% { opacity: 0; transform: translateY(5px); } 30%,39% { opacity: 1; transform: translateY(0); } 45%,100% { opacity: 0; transform: translateY(-5px); } }
 @keyframes demo-shard { 0%,27% { opacity: 0; transform: translate(0,0) scale(1); } 31% { opacity: 1; } 42%,100% { opacity: 0; transform: translate(var(--shard-x, -42px), var(--shard-y, -42px)) scale(.35); } }
 @keyframes demo-scene-reactor { 0%,47% { opacity: 0; } 52%,95% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes demo-reactor-arrow { 0%,63% { opacity: 0; transform: scale(.45) rotate(-20deg); } 69%,92% { opacity: 1; transform: scale(1) rotate(0); } 98%,100% { opacity: 0; transform: scale(1.2); } }
@@ -842,7 +884,7 @@ body.playing footer { display: none; }
   .leaderboard-skeleton::before,
   .skeleton-bar { animation: none !important; }
   .board-frame::after, .board-frame.reactor-active::after { animation: none !important; background-position: 50% 0; opacity: 1; }
-  .demo-scene, .demo-clear-cluster > i, .demo-shards b, .demo-result, .demo-reactor-beam, .demo-reactor-cluster > i[data-arrow]::after, .demo-tabs b { animation: none !important; }
+  .demo-scene, .demo-clear-cluster > i, .demo-drop-label, .demo-shards b, .demo-result, .demo-reactor-beam, .demo-reactor-cluster > i[data-arrow]::after, .demo-tabs b { animation: none !important; }
   .demo-clear-scene, .demo-clear-cluster > i { opacity: 1; transform: none; }
   .demo-reactor-scene { display: none; }
   .demo-tabs b:first-child { color: var(--acid); }

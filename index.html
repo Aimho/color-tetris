@@ -123,15 +123,16 @@
           <button class="tutorial-dismiss" id="tutorialDismiss" type="button" aria-label="게임 방법 닫기">×</button>
         </div>
         <h2 id="tutorialTitle">조작법을<br />익혀볼까요?</h2>
-        <div class="tutorial-demo" aria-label="같은 색 블록 6칸 이상이 연결되면 폭발하고, 리액터 중에는 폭발 셀에 화살표가 생성되는 방법">
+        <div class="tutorial-demo" aria-label="조각을 내려 같은 색 블록 6칸을 연결하면 폭발하고, 리액터 중에는 폭발 셀에 화살표가 생성되는 방법">
           <div class="demo-board" aria-hidden="true">
             <div class="demo-scene demo-clear-scene">
               <strong class="demo-mode">CONNECT 6+</strong>
-              <span class="demo-instruction">같은 색 6개 이상 연결</span>
+              <span class="demo-instruction">조각 낙하 → 6개 연결 → 폭발</span>
               <div class="demo-cluster demo-clear-cluster">
-                <i></i><i></i><i></i><i></i><i></i><i></i>
+                <i class="demo-drop-cell"></i><i></i><i></i><i class="demo-drop-cell"></i><i></i><i></i>
                 <span class="demo-shards"><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span>
               </div>
+              <span class="demo-drop-label">DROP ↓</span>
               <em class="demo-result">폭발!</em>
             </div>
             <div class="demo-scene demo-reactor-scene">
@@ -144,7 +145,7 @@
               <em class="demo-result">화살표 연쇄!</em>
             </div>
           </div>
-          <div class="demo-tabs" aria-hidden="true"><b>6+ 연결 → 폭발</b><b>리액터 폭발 → 화살표</b></div>
+          <div class="demo-tabs" aria-hidden="true"><b>낙하 → 6개 연결 → 폭발</b><b>리액터 폭발 → 화살표</b></div>
         </div>
         <div class="tutorial-actions tutorial-mobile">
           <span><b>탭</b> 조각 회전</span><span><b>좌우 드래그</b> 조각 이동</span><span><b>아래 드래그</b> 천천히 내리기</span><span><b>위로 밀기</b> 조각 보관</span><span><b>빠른 아래 스와이프</b> 즉시 낙하</span>
