@@ -1,15 +1,13 @@
+import { getKstDay } from './game-session.js';
+
+export { getKstDay } from './game-session.js';
+
 export const PROFILE_KEY = 'color-tetrix-profile-v1';
 export const REACTOR_MAX = 100;
 
 export function getReactorChargeRate(level) {
   const normalized = Math.min(1, (Math.max(1, level) - 1) / 19);
   return Math.round((1 - normalized * .55) * 100) / 100;
-}
-
-export function getKstDay(date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(date);
 }
 
 export function getKstWeek(date = new Date()) {

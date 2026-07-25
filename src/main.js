@@ -8,6 +8,7 @@ import { canResetLock, getClearIntensity, getClearScore, getDropInterval, getLev
 import { attachQueuedSpecial, createSpecialRewardQueue, earnSpecialRewards, resolveSpecialEffects } from './events.js';
 import { chargeReactor, finishRun, readProfile, unlockedThemes } from './progression.js';
 import { chooseMultiplierDrop, getChainPower, getClearSpecialMultiplier, getMultiplierRewards } from './reactor.js';
+import { GAME_MODES, clearRunSnapshot, detectPlatform, readRunSnapshot, saveRunSnapshot } from './game-session.js';
 import { setupPwa } from './pwa.js';
 
 const COLS = 10;
@@ -45,6 +46,7 @@ const tutorialClose = document.querySelector('#tutorialClose');
 const tutorialDismiss = document.querySelector('#tutorialDismiss');
 const resumeDialog = document.querySelector('#resumeDialog');
 const resumeButton = document.querySelector('#resumeButton');
+const resumeDiscardButton = document.querySelector('#resumeDiscardButton');
 const gestureHint = document.querySelector('#gestureHint');
 const gameShell = document.querySelector('.game-shell');
 const scoreRecord = document.querySelector('#scoreRecord');
@@ -59,6 +61,8 @@ const rankingButton = document.querySelector('#rankingButton');
 const rankingCloseButton = document.querySelector('#rankingCloseButton');
 const buildVersion = document.querySelector('#buildVersion');
 const shareButton = document.querySelector('#shareButton');
+const rankedStartButton = document.querySelector('#rankedStartButton');
+const runModeStatus = document.querySelector('#runModeStatus');
 const reactorStatus = document.querySelector('#reactorStatus');
 const reactorValue = document.querySelector('#reactorValue');
 const reactorInstruction = document.querySelector('#reactorInstruction');
@@ -83,6 +87,14 @@ let reactorCharge = 0, reactorPower = 0, maxChain = 0;
 let profile = readProfile();
 let reactorRenderKey = '';
 let animationFrameId = null;
+let gameMode = GAME_MODES.PRACTICE;
+let runPlatform = detectPlatform({
+  native:globalThis.Capacitor?.isNativePlatform?.() === true,
+  coarsePointer:isTouchDevice,
+  touchPoints:navigator.maxTouchPoints,
+});
+let lastStableRunState = null;
+let pendingStartMode = GAME_MODES.PRACTICE;
 
 buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 
@@ -142,11 +154,13 @@ function spawn() {
   piecesSpawned++;
   if (isTouchDevice && piecesSpawned <= 3) showGestureHint('탭 회전 · 드래그 이동');
   if (collides(active)) endGame();
+  else lastStableRunState = structuredClone(snapshotRunState());
 }
 
-function reset() {
+function reset(mode = gameMode) {
   stopLoop();
   runId++;
+  gameMode = mode;
   randomSource = Math.random;
   document.body.classList.add('playing');
   board = Array.from({length: ROWS}, () => Array(COLS).fill(null));
@@ -163,10 +177,102 @@ function reset() {
   scoreSubmitted = false;
   scoreForm.querySelector('button').disabled = false;
   shareButton.hidden = true;
+  rankedStartButton.hidden = true;
+  runModeStatus.hidden = false;
+  runModeStatus.textContent = gameMode === GAME_MODES.RANKED ? 'RANKED' : 'PRACTICE';
   lastTime = performance.now(); dropTimer = 0; lockTimer = 0;
   startMusic();
   updateReactor();
   startLoop();
+}
+
+function snapshotRunState() {
+  return {
+    mode:gameMode,
+    platform:runPlatform,
+    board,
+    eventBoard,
+    active,
+    queue,
+    hold,
+    holdUsed,
+    score,
+    level,
+    lines,
+    shapeBag,
+    colorBag,
+    piecesSinceMono,
+    piecesSpawned,
+    specialRewards,
+    reactorCharge,
+    reactorPower,
+    maxChain,
+    lockTimer,
+    lockResets,
+  };
+}
+
+function persistCurrentRun() {
+  if (!running) return;
+  const state = resolving ? lastStableRunState : snapshotRunState();
+  if (!state) return;
+  try { saveRunSnapshot(state); } catch { /* private mode */ }
+}
+
+function restoreRun(snapshot) {
+  const state = snapshot.state;
+  stopLoop();
+  runId++;
+  ({
+    board,
+    eventBoard,
+    active,
+    queue,
+    hold,
+    holdUsed,
+    score,
+    level,
+    lines,
+    shapeBag,
+    colorBag,
+    piecesSinceMono,
+    piecesSpawned,
+    specialRewards,
+    reactorCharge,
+    reactorPower,
+    maxChain,
+    lockTimer,
+    lockResets,
+  } = state);
+  // Local saves are never authoritative for ranked play. Server-issued run
+  // verification will re-enable ranked restoration in the server phase.
+  gameMode = GAME_MODES.PRACTICE;
+  runPlatform = state.platform;
+  resolving = false;
+  running = true;
+  paused = true;
+  autoPaused = true;
+  particles = [];
+  arrowBeams = [];
+  bombBursts = [];
+  multiplierBursts = [];
+  multiplierDrops = [];
+  clearingCells = new Set();
+  lastStableRunState = structuredClone(snapshotRunState());
+  document.body.classList.add('playing');
+  overlay.classList.remove('visible', 'game-over', 'ranking-view');
+  runModeStatus.hidden = false;
+  runModeStatus.textContent = gameMode === GAME_MODES.RANKED ? 'RANKED' : 'PRACTICE';
+  drawRacks();
+  updateStats();
+  updateReactor();
+  draw();
+  gameShell.inert = true;
+  resumeDialog.hidden = false;
+  resumeDialog.querySelector('#resumeTitle').innerHTML = '저장된 게임을<br />이어갈까요?';
+  resumeDialog.querySelector('.resume-card > p:not(.overlay-kicker)').textContent =
+    `${gameMode === GAME_MODES.RANKED ? '랭킹 도전' : '연습 게임'} · LV ${level}`;
+  resumeButton.focus({preventScroll:true});
 }
 
 function cellsOf(piece) { return piece.cells.map(c => ({ x: c.x + piece.x, y: c.y + piece.y, color: c.color, event: c.event })); }
@@ -840,7 +946,7 @@ function closeTutorial() {
   tutorial.hidden = true;
   gameShell.inert = false;
   rememberTutorial();
-  if (startsGame) reset();
+  if (startsGame) reset(pendingStartMode);
   else if (running) { paused = false; lastTime = performance.now(); startLoop(); startMusic(); }
   tutorialStartsGame = false;
   if (!startsGame) tutorialOpener?.focus?.();
@@ -857,6 +963,7 @@ function showGestureHint(message) {
 function endGame() {
   running=false; resolving=false;
   stopLoop();
+  clearRunSnapshot();
   updateReactor();
   stopMusic(.32);
   overlayTitle.innerHTML='연쇄가<br />멈췄습니다';
@@ -865,10 +972,10 @@ function endGame() {
   shareButton.hidden = false;
   rankingButton.hidden = true;
   overlay.classList.add('visible', 'game-over');
-  scoreRecord.hidden = false;
+  scoreRecord.hidden = gameMode !== GAME_MODES.RANKED;
   playerNameInput.value = savedPlayerName();
   scoreStatus.textContent = '';
-  refreshLeaderboard();
+  if (gameMode === GAME_MODES.RANKED) refreshLeaderboard();
   profile = finishRun(profile, { level, clears: lines, maxChain });
   try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
   renderMeta();
@@ -1189,14 +1296,21 @@ function act(action) {
   return false;
 }
 
-document.querySelector('#startButton').addEventListener('click',()=>{
+function startSelectedMode(mode) {
   unlockAudioSession();
   closeHomeRanking();
   rankingButton.hidden = true;
+  rankedStartButton.hidden = true;
+  pendingStartMode = mode;
   document.body.classList.add('playing');
   if (!tutorialSeen()) openTutorial(true);
-  else reset();
-});
+  else reset(mode);
+}
+
+document.querySelector('#startButton').addEventListener('click', () => startSelectedMode(
+  overlay.classList.contains('game-over') ? gameMode : GAME_MODES.PRACTICE,
+));
+rankedStartButton.addEventListener('click', () => startSelectedMode(GAME_MODES.RANKED));
 rankingButton.addEventListener('click', openHomeRanking);
 rankingCloseButton.addEventListener('click', () => {
   closeHomeRanking();
@@ -1253,6 +1367,7 @@ window.addEventListener('keydown',e=>{
 });
 function pauseForInterruption() {
   if (!running || autoPaused || !tutorial.hidden) return;
+  persistCurrentRun();
   paused = true;
   stopLoop();
   autoPaused = true;
@@ -1279,13 +1394,38 @@ function continueAfterInterruption() {
   startMusic();
 }
 
+function discardSavedRun() {
+  clearRunSnapshot();
+  stopLoop();
+  runId++;
+  running = false;
+  paused = false;
+  autoPaused = false;
+  resumeDialog.hidden = true;
+  gameShell.inert = false;
+  document.body.classList.remove('playing');
+  overlay.classList.add('visible');
+  overlay.classList.remove('game-over', 'ranking-view');
+  overlayTitle.innerHTML = '낙하가 끝나면<br />연쇄가 시작된다';
+  overlayCopy.textContent = '같은 색 블록을 6칸 이상 연결하세요. 무너진 블록이 새로운 연쇄를 만듭니다.';
+  document.querySelector('#startButton').innerHTML = '연습하기 <span>▶</span>';
+  rankedStartButton.hidden = false;
+  rankingButton.hidden = false;
+  shareButton.hidden = true;
+  runModeStatus.hidden = true;
+}
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) pauseForInterruption();
   else requestResumeAfterInterruption();
 });
-window.addEventListener('pagehide', pauseForInterruption);
+window.addEventListener('pagehide', () => {
+  persistCurrentRun();
+  pauseForInterruption();
+});
 window.addEventListener('pageshow', requestResumeAfterInterruption);
 resumeButton.addEventListener('click', continueAfterInterruption);
+resumeDiscardButton.addEventListener('click', discardSavedRun);
 
 canvas.addEventListener('pointerdown',e=>{
   if (!running || paused) return;
@@ -1350,4 +1490,6 @@ canvas.addEventListener('lostpointercapture',()=>{ gestureStart=null; });
 
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
 draw(); drawRacks(); updateStats(); updateReactor(); renderMeta();
+const savedRun = readRunSnapshot();
+if (savedRun) restoreRun(savedRun);
 setupPwa();
