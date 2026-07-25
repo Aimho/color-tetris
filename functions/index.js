@@ -19,6 +19,7 @@ import {
   nicknameReservationId,
   normalizeNickname,
 } from './profile-core.js';
+import { createSeasonBadgeIds, getUnprocessedClosedSeasons } from './shared/season-badges.js';
 
 initializeApp();
 const db = getFirestore();
@@ -91,11 +92,14 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
   if (!initialSnapshot.exists) throw new HttpsError('not-found', '랭킹 도전을 찾을 수 없습니다.');
   const initialRun = initialSnapshot.data();
   assertUsableRun(initialRun, uid);
-  if (initialRun.status === 'accepted') {
-    return {
-      accepted:true,
-      updated:initialRun.bestUpdated,
-      score:initialRun.finalScore,
+    if (initialRun.status === 'accepted') {
+      return {
+        accepted:true,
+        updated:initialRun.bestUpdated,
+        firstRecord:initialRun.firstRecord,
+        previousScore:initialRun.previousScore,
+        bestScore:initialRun.bestScore,
+        score:initialRun.finalScore,
       level:initialRun.finalLevel,
       name:initialRun.finalName || name,
     };
@@ -121,6 +125,9 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
       return {
         accepted:true,
         updated:run.bestUpdated,
+        firstRecord:run.firstRecord,
+        previousScore:run.previousScore,
+        bestScore:run.bestScore,
         score:run.finalScore,
         level:run.finalLevel,
         name:run.finalName || name,
@@ -131,12 +138,16 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
     const scoreRef = db.doc(`season_rankings/${run.season}_${run.platform}/scores/${uid}`);
     const previousSnapshot = await transaction.get(scoreRef);
     const previous = previousSnapshot.data();
+    const firstRecord = !previous;
     const updated = !previous
       || ledger.score > previous.score
       || (ledger.score === previous.score && ledger.level > previous.level);
 
     transaction.update(runRef, {
       status:'accepted', submittedAt:now, verifiedAt:now, bestUpdated:updated,
+      firstRecord,
+      previousScore:previous?.score ?? null,
+      bestScore:updated ? ledger.score : previous.score,
       finalScore:ledger.score, finalLevel:ledger.level, finalName:name,
     });
     transaction.create(db.doc(`ranked_submissions/${runId}`), {
@@ -152,14 +163,25 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
         achievedAt:now, updatedAt:FieldValue.serverTimestamp(),
       });
     }
-    return {accepted:true, updated, score:ledger.score, level:ledger.level, name};
+    return {
+      accepted:true,
+      updated,
+      firstRecord,
+      previousScore:previous?.score ?? null,
+      bestScore:updated ? ledger.score : previous.score,
+      score:ledger.score,
+      level:ledger.level,
+      name,
+    };
   });
   return result;
 });
 
 export const getOrCreatePlayerProfile = onCall(OPTIONS, async request => {
   const uid = requireUid(request);
-  return serializePlayerProfile(await getOrCreateProfile(uid));
+  const profile = await getOrCreateProfile(uid);
+  await syncClosedSeasonBadges(uid, profile);
+  return serializePlayerProfile((await db.doc(`player_profiles/${uid}`).get()).data());
 });
 
 async function getOrCreateProfile(uid) {
@@ -283,7 +305,59 @@ function serializePlayerProfile(profile) {
     lastNicknameChangeAtMs,
     nextNicknameChangeAt:change.nextChangeAt,
     canChangeNickname:change.allowed,
+    seasonBadges:Array.isArray(profile.seasonBadges) ? profile.seasonBadges : [],
   };
+}
+
+async function syncClosedSeasonBadges(uid, profile) {
+  const profileRef = db.doc(`player_profiles/${uid}`);
+  const season = await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(profileRef);
+    const currentProfile = snapshot.data() || profile;
+    const now = Timestamp.now();
+    if (currentProfile.badgeProcessingUntil?.toMillis?.() > now.toMillis()) return null;
+    const [nextSeason] = getUnprocessedClosedSeasons({
+      createdAt:currentProfile.createdAt?.toDate?.() || new Date(),
+      processed:currentProfile.badgeSeasonsProcessed || [],
+      limit:1,
+    });
+    if (!nextSeason) return null;
+    transaction.update(profileRef, {
+      badgeProcessingSeason:nextSeason,
+      badgeProcessingUntil:Timestamp.fromMillis(now.toMillis() + 60_000),
+    });
+    return nextSeason;
+  });
+  if (!season) return;
+  try {
+    const badges = [];
+    for (const platform of ['mobile', 'desktop']) {
+      const scores = db.collection(`season_rankings/${season}_${platform}/scores`);
+      const ownScore = await scores.doc(uid).get();
+      if (!ownScore.exists) continue;
+      const top = await scores
+        .orderBy('score', 'desc')
+        .orderBy('level', 'desc')
+        .orderBy('achievedAt', 'asc')
+        .limit(50)
+        .get();
+      const rank = top.docs.findIndex(score => score.id === uid) + 1;
+      badges.push(...createSeasonBadgeIds(season, platform, rank, true));
+    }
+    await profileRef.update({
+      badgeSeasonsProcessed:FieldValue.arrayUnion(season),
+      ...(badges.length ? {seasonBadges:FieldValue.arrayUnion(...badges)} : {}),
+      badgeProcessingSeason:FieldValue.delete(),
+      badgeProcessingUntil:FieldValue.delete(),
+      updatedAt:FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    await profileRef.update({
+      badgeProcessingSeason:FieldValue.delete(),
+      badgeProcessingUntil:FieldValue.delete(),
+    }).catch(() => {});
+    throw error;
+  }
 }
 
 function safeAppPlatform(appId) {

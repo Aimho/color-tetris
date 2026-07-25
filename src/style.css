@@ -157,6 +157,8 @@ h1 span { color: var(--orange); }
 
 button:active { transform: scale(.96); }
 body.playing .home-only-action { display: none; }
+.playing-only-action { display: none; }
+body.playing .playing-only-action { display: inline-grid; place-items: center; }
 
 .app-panel {
   position: fixed;
@@ -429,8 +431,7 @@ body.playing .home-only-action { display: none; }
 body:not(.playing) .score-strip,
 body:not(.playing) .piece-rack,
 body:not(.playing) #gameCanvas,
-body:not(.playing) .gesture-hint,
-body:not(.playing) .reactor-surge {
+body:not(.playing) .gesture-hint {
   display: none;
 }
 
@@ -569,50 +570,26 @@ body:not(.playing) .game-overlay {
 #rankedStartButton { color: var(--ink); background: var(--orange); box-shadow: 0 5px 0 oklch(43% .16 30); }
 #rankedStartButton:disabled { color: var(--muted); background: var(--surface-raised); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); cursor: not-allowed; }
 #shareButton { color: var(--ink); background: var(--surface-raised); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 5px 0 #050606; }
+#homeButton { color: oklch(20% .04 112); background: var(--acid); box-shadow: 0 5px 0 oklch(52% .12 112); }
 #rankingButton { color: var(--ink); background: var(--surface-raised); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 5px 0 #050606; }
 body:not(.playing) #rankingButton { flex-basis: 100%; }
-.reactor-surge {
-  position: absolute;
-  z-index: 6;
-  top: 10px;
-  right: 10px;
-  display: grid;
-  grid-template-columns: auto auto;
-  align-items: center;
-  gap: 0 8px;
-  min-width: 112px;
-  padding: 8px 10px;
-  pointer-events: none;
-  color: var(--ink);
-  background: color-mix(in oklab, var(--surface) 88%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--orange) 50%, transparent), 0 8px 22px rgba(0,0,0,.35);
-  text-shadow: 0 0 16px color-mix(in oklab, var(--orange) 85%, transparent);
-}
-.reactor-surge[hidden] { display: none; }
-.reactor-surge span { color: var(--orange); font-size: 9px; font-weight: 700; letter-spacing: .18em; }
-.reactor-surge strong { grid-row: 1 / 3; grid-column: 2; font-family: "Black Han Sans"; font-size: 34px; font-weight: 400; line-height: .9; font-variant-numeric: tabular-nums; }
-.reactor-surge small { grid-column: 1; color: var(--acid); font-size: 7px; font-weight: 700; letter-spacing: .08em; }
-
 body[data-theme="ember"] { --acid: oklch(79% .18 55); --orange: oklch(69% .22 25); }
 body[data-theme="aurora"] { --acid: oklch(82% .16 180); --orange: oklch(72% .19 315); }
 
 .score-record { width: min(100%, 310px); margin: -8px 0 18px; }
-.score-record > p { margin: 0 0 10px; color: var(--ink); font: 12px/1.4 system-ui, sans-serif; }
-.score-record form { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 7px; }
-.score-record input {
-  min-width: 0;
-  height: 44px;
-  padding: 0 12px;
-  border: 0;
+.score-status { min-height: 17px; margin: 0 0 10px !important; color: var(--acid) !important; font: 700 11px/1.45 system-ui, sans-serif !important; text-wrap: balance; }
+.result-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
   border-radius: var(--r-sm);
-  outline: 1px solid rgba(255,255,255,.12);
-  color: var(--ink);
-  background: var(--surface-raised);
-  font: 700 12px "Chivo Mono", monospace;
+  background: rgba(255,255,255,.07);
 }
-.score-record input:focus { outline: 2px solid var(--acid); outline-offset: 1px; }
-.score-record form button { min-width: 0; min-height: 44px; }
-.score-status { min-height: 17px; margin: 8px 0 0 !important; color: var(--acid) !important; font-size: 10px !important; }
+.result-stats div { padding: 10px; background: var(--surface-raised); text-align: left; }
+.result-stats dt { margin-bottom: 4px; color: var(--muted); font: 8px/1.2 "Chivo Mono", monospace; letter-spacing: .08em; }
+.result-stats dd { margin: 0; color: var(--ink); font: 700 13px/1.2 "Chivo Mono", monospace; font-variant-numeric: tabular-nums; }
 .leaderboard { margin-top: 12px; text-align: left; }
 .leaderboard h3 { margin: 0 0 6px; color: var(--acid); font-size: 11px; letter-spacing: .16em; }
 .leaderboard ol { max-height: 190px; margin: 0; padding: 0; overflow-y: auto; list-style: none; counter-reset: rank; }
@@ -831,6 +808,11 @@ footer span:last-child { text-align: right; }
   color: var(--muted);
   background: var(--surface-raised);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.resume-card #resumeHelpButton {
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 5px 0 #050606;
 }
 
 .tutorial-sheet {
@@ -1093,11 +1075,6 @@ body.playing footer { display: none; }
   body.playing .next-rack {
     right: calc(50% - min(50vw, calc((100dvh - max(4px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom)) - 50px) / 4)) + 4px);
   }
-  body.playing .reactor-surge {
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
-  }
   body.playing .run-mode-badge {
     top: 58px;
     left: 4px;
@@ -1153,14 +1130,6 @@ body.playing footer { display: none; }
   footer span { white-space: nowrap; }
   .end-actions button { gap: 4px; font-size: 11px; }
   .end-actions button span { font-size: 9px; }
-  body.playing .reactor-surge {
-    min-width: 104px;
-    padding: 6px 7px;
-    gap: 0 4px;
-  }
-  body.playing .reactor-surge strong { font-size: 28px; }
-  body.playing .reactor-surge span { font-size: 8px; }
-  body.playing .reactor-surge small { font-size: 6px; }
 }
 
 @media (max-height: 600px) {

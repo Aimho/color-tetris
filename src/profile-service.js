@@ -1,6 +1,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, appCheck, auth, ensureAuthUser } from './firebase-client.js';
 import { connectGoogleAccount, isSocialAccountConnected } from './ranked-service.js';
+export { formatSeasonBadge } from '../functions/shared/season-badges.js';
 
 const functions = getFunctions(app, 'asia-northeast3');
 const getOrCreateProfile = httpsCallable(functions, 'getOrCreatePlayerProfile', {
@@ -37,6 +38,7 @@ export async function connectPlayerGoogleAccount() {
   await connectGoogleAccount();
   return loadPlayerProfile();
 }
+
 
 function providerLabel() {
   const providerIds = auth.currentUser?.providerData?.map(provider => provider.providerId) || [];

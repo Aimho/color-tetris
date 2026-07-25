@@ -6,6 +6,12 @@ import {
   signInWithPopup,
 } from 'firebase/auth';
 import { app, appCheck, auth, ensureAuthUser } from './firebase-client.js';
+import {
+  clearPendingRankedRun,
+  isRetryableRankedError,
+  readPendingRankedRun,
+  rememberPendingRankedRun,
+} from './pending-ranked.js';
 
 const functions = getFunctions(app, 'asia-northeast3');
 const startRun = httpsCallable(functions, 'startRankedRun', {limitedUseAppCheckTokens:true});
@@ -18,6 +24,7 @@ export function isSocialAccountConnected() {
 export async function rankedServiceStatus() {
   await ensureAuthUser();
   if (!appCheck) return {ready:false, reason:'랭킹 서버 보호 설정이 필요합니다.'};
+  await flushPendingRankedRun().catch(() => {});
   return {ready:true, reason:'익명 플레이어 ID로 랭킹에 참여합니다.'};
 }
 
@@ -46,7 +53,22 @@ export async function startRankedRun(requestId = crypto.randomUUID()) {
 }
 
 export async function submitRankedRun(runId, ledger) {
-  await ensureAuthUser();
-  const result = await submitRun({runId, ledger});
-  return result.data;
+  rememberPendingRankedRun({runId, ledger});
+  try {
+    await ensureAuthUser();
+    const result = await submitRun({runId, ledger});
+    clearPendingRankedRun(runId);
+    return result.data;
+  } catch (error) {
+    if (!isRetryableRankedError(error)) clearPendingRankedRun(runId);
+    throw error;
+  }
+}
+
+export async function flushPendingRankedRun(storage = globalThis.localStorage) {
+  const pending = readPendingRankedRun(storage);
+  if (!pending) return null;
+  const result = await submitRankedRun(pending.runId, pending.ledger);
+  clearPendingRankedRun(pending.runId, storage);
+  return result;
 }

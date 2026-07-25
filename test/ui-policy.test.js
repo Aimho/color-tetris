@@ -31,3 +31,15 @@ test('랭킹 기록의 이름은 클라이언트 입력이 아닌 예약 프로�
   assert.match(server, /const name = playerProfile\.nickname/);
   assert.doesNotMatch(client, /submitRun\(\{runId,\s*name,/);
 });
+
+test('게임 HUD는 일시정지와 리액터 퍼센트만 직접 제공한다', async () => {
+  const [html, main] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(html, /id="pauseButton"/);
+  assert.match(html, /id="resumeHelpButton"/);
+  assert.match(html, /id="reactorHudValue">0%/);
+  assert.doesNotMatch(html, /id="helpButton"|id="soundButton"|id="chain"/);
+  assert.doesNotMatch(`${html}\n${main}`, /reactorInstruction|POWER \$\{reactorPower\}/);
+});

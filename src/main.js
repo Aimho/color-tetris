@@ -12,6 +12,7 @@ import { GAME_MODES, clearRunSnapshot, detectPlatform, readRunSnapshot, saveRunS
 import { createScoreLedger } from './ranking-model.js';
 import { createRankedRandom } from '../functions/shared/ranked-random.js';
 import { setupPwa } from './pwa.js';
+import { createGameResult, createShareText } from './game-result.js';
 import {
   dragSensitivityScale,
   particleScale,
@@ -41,7 +42,8 @@ const holdCtx = document.querySelector('#holdCanvas').getContext('2d');
 const nextCtx = document.querySelector('#nextCanvas').getContext('2d');
 const scoreEl = document.querySelector('#score');
 const levelEl = document.querySelector('#level');
-const chainEl = document.querySelector('#chain');
+const reactorHud = document.querySelector('#reactorHud');
+const reactorHudValue = document.querySelector('#reactorHudValue');
 const callout = document.querySelector('#chainCallout');
 const levelCallout = document.querySelector('#levelCallout');
 const impactFlash = document.querySelector('#impactFlash');
@@ -55,15 +57,16 @@ const tutorialClose = document.querySelector('#tutorialClose');
 const tutorialDismiss = document.querySelector('#tutorialDismiss');
 const resumeDialog = document.querySelector('#resumeDialog');
 const resumeButton = document.querySelector('#resumeButton');
+const resumeHelpButton = document.querySelector('#resumeHelpButton');
 const resumeDiscardButton = document.querySelector('#resumeDiscardButton');
 const gestureHint = document.querySelector('#gestureHint');
 const gameShell = document.querySelector('.game-shell');
 const scoreRecord = document.querySelector('#scoreRecord');
-const scoreForm = document.querySelector('#scoreForm');
-const playerNameInput = document.querySelector('#playerName');
 const scoreStatus = document.querySelector('#scoreStatus');
-const leaderboardList = document.querySelector('#leaderboardList');
-const leaderboardTitle = document.querySelector('#leaderboardTitle');
+const resultScore = document.querySelector('#resultScore');
+const resultLevel = document.querySelector('#resultLevel');
+const resultSeasonBest = document.querySelector('#resultSeasonBest');
+const resultRank = document.querySelector('#resultRank');
 const homeRanking = document.querySelector('#homeRanking');
 const homeLeaderboardList = document.querySelector('#homeLeaderboardList');
 const rankingButton = document.querySelector('#rankingButton');
@@ -72,11 +75,10 @@ const rankingMyBest = document.querySelector('#rankingMyBest');
 const rankingPlatformTabs = [...document.querySelectorAll('[data-ranking-platform]')];
 const buildVersion = document.querySelector('#buildVersion');
 const shareButton = document.querySelector('#shareButton');
+const homeButton = document.querySelector('#homeButton');
+const startButton = document.querySelector('#startButton');
 const rankedStartButton = document.querySelector('#rankedStartButton');
 const runModeStatus = document.querySelector('#runModeStatus');
-const reactorStatus = document.querySelector('#reactorStatus');
-const reactorValue = document.querySelector('#reactorValue');
-const reactorInstruction = document.querySelector('#reactorInstruction');
 const profileButton = document.querySelector('#profileButton');
 const settingsButton = document.querySelector('#settingsButton');
 const profilePanel = document.querySelector('#profilePanel');
@@ -97,7 +99,7 @@ const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.m
 const reducedMotionMedia = matchMedia('(prefers-reduced-motion: reduce)');
 
 let board, eventBoard, active, queue, hold, holdUsed, score, level, lines, running, paused;
-let lastTime = 0, dropTimer = 0, resolving = false, muted = false;
+let lastTime = 0, dropTimer = 0, resolving = false;
 let shapeBag = [], colorBag = [];
 let runId = 0, lockTimer = 0, lockResets = 0;
 let piecesSinceMono = 0, particles = [];
@@ -105,8 +107,8 @@ let arrowBeams = [], bombBursts = [], multiplierBursts = [], multiplierDrops = [
 let specialRewards = createSpecialRewardQueue();
 let tutorialStartsGame = false, piecesSpawned = 0, hintTimer;
 let tutorialOpener = null, autoPaused = false;
+let tutorialFromPause = false;
 let gestureStart = null;
-let scoreSubmitted = false;
 let leaderboardApiPromise;
 let randomSource = Math.random;
 let reactorCharge = 0, reactorPower = 0, maxChain = 0;
@@ -131,6 +133,7 @@ let rankingPlatform = runPlatform;
 let settings = readSettings();
 let prefersReducedMotion = shouldReduceMotion();
 let serverProfile = null;
+let currentGameResult = null;
 
 buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 settingsVersion.textContent = `COLOR BOMB · VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
@@ -146,11 +149,11 @@ function shouldReduceMotion() {
 }
 
 function effectsEnabled() {
-  return !muted && settings.effects;
+  return settings.effects;
 }
 
 function musicEnabled() {
-  return !muted && settings.bgm;
+  return settings.bgm;
 }
 
 function syncSettingsForm() {
@@ -206,7 +209,7 @@ async function loadProfilePanel() {
   renderLocalProfile();
   profileStatus.textContent = '프로필과 시즌 기록을 불러오는 중…';
   try {
-    const [{loadPlayerProfile}, {loadTopScores}] = await Promise.all([
+    const [{loadPlayerProfile, formatSeasonBadge}, {loadTopScores}] = await Promise.all([
       import('./profile-service.js'),
       getLeaderboardApi(),
     ]);
@@ -214,7 +217,7 @@ async function loadProfilePanel() {
     renderServerProfile(nextProfile);
     const platforms = ['mobile', 'desktop'];
     const results = await Promise.allSettled(platforms.map(platform => loadTopScores(platform)));
-    const badges = [];
+    const badges = (nextProfile.seasonBadges || []).map(formatSeasonBadge).filter(Boolean);
     results.forEach((result, index) => {
       const platform = platforms[index];
       const scoreElement = document.querySelector(`#profile${platform[0].toUpperCase()}${platform.slice(1)}Score`);
@@ -364,9 +367,9 @@ function reset(mode = gameMode, session = pendingRankedSession) {
   overlay.classList.remove('visible', 'game-over');
   closeHomeRanking();
   scoreRecord.hidden = true;
-  scoreSubmitted = false;
-  scoreForm.querySelector('button').disabled = false;
   shareButton.hidden = true;
+  homeButton.hidden = true;
+  startButton.hidden = false;
   rankedStartButton.hidden = true;
   runModeStatus.hidden = false;
   runModeStatus.textContent = gameMode === GAME_MODES.RANKED ? 'RANKED' : 'PRACTICE';
@@ -626,7 +629,6 @@ async function resolveBoard() {
       return event === 'x2' || event === 'x3' ? [{origin:key, event}] : [];
     });
     const multiplierRemoved = new Set(multipliers.map(({origin}) => origin));
-    chainEl.textContent = `×${chain}`;
     clearingCells = new Set(removed);
     draw();
     if (beams.length || bombs.length || multipliers.length) await playSpecialEffects(beams, bombs, multipliers);
@@ -671,7 +673,7 @@ async function resolveBoard() {
     await waitUntilResumed(resolvingRun);
     if (resolvingRun !== runId) return;
   }
-  resolving = false; chainEl.textContent = '—';
+  resolving = false;
   spawn();
 }
 
@@ -1173,13 +1175,11 @@ function drawRacks() {
 function updateStats() { scoreEl.textContent=String(score).padStart(6,'0'); levelEl.textContent=String(level).padStart(2,'0'); }
 function updateReactor() {
   const value = Math.min(100, reactorCharge);
-  const renderKey = `${value}:${reactorPower}`;
+  const renderKey = `${value}`;
   if (renderKey === reactorRenderKey) return;
   reactorRenderKey = renderKey;
-  reactorStatus.hidden = false;
-  reactorValue.textContent = `${value}%`;
-  reactorInstruction.textContent = `POWER ${reactorPower}`;
-  reactorStatus.setAttribute('aria-label', `리액터 충전 ${value}퍼센트, 체인 파워 ${reactorPower}`);
+  reactorHudValue.textContent = `${value}%`;
+  reactorHud.setAttribute('aria-label', `리액터 충전 ${value}퍼센트`);
 }
 
 function applyProfileTheme() {
@@ -1230,6 +1230,13 @@ function openTutorial(startsGame = false) {
 }
 
 function closeTutorial() {
+  if (tutorialFromPause) {
+    tutorial.hidden = true;
+    tutorialFromPause = false;
+    resumeDialog.hidden = false;
+    resumeHelpButton.focus({preventScroll:true});
+    return;
+  }
   const startsGame = tutorialStartsGame;
   tutorial.hidden = true;
   gameShell.inert = false;
@@ -1255,16 +1262,19 @@ function endGame() {
   completedRunLedger = createCurrentScoreLedger();
   updateReactor();
   stopMusic(.32);
-  overlayTitle.innerHTML='연쇄가<br />멈췄습니다';
-  overlayCopy.textContent=`최종 점수 ${score.toLocaleString()}점 · LV ${level} · 새로운 연쇄에 도전하시겠습니까?`;
-  document.querySelector('#startButton').innerHTML='RETRY <span>↻</span>';
+  currentGameResult = createGameResult({
+    ranked:gameMode === GAME_MODES.RANKED,
+    score,
+    level,
+  });
+  renderGameResult(currentGameResult);
+  startButton.hidden = true;
   shareButton.hidden = false;
+  homeButton.hidden = false;
   rankingButton.hidden = true;
   overlay.classList.add('visible', 'game-over');
-  scoreRecord.hidden = gameMode !== GAME_MODES.RANKED;
-  playerNameInput.value = savedPlayerName();
-  scoreStatus.textContent = '';
-  if (gameMode === GAME_MODES.RANKED) refreshLeaderboard();
+  scoreRecord.hidden = false;
+  if (gameMode === GAME_MODES.RANKED) submitCompletedRankedRun(runId, score, level);
   profile = finishRun(profile, {
     score,
     level,
@@ -1277,6 +1287,41 @@ function endGame() {
   try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
   applyProfileTheme();
   tone(90,.22);
+}
+
+function renderGameResult(result) {
+  overlayTitle.textContent = result.title;
+  overlayCopy.textContent = result.detail;
+  scoreStatus.textContent = result.kind === 'pending' ? result.detail : '';
+  resultScore.textContent = result.score.toLocaleString();
+  resultLevel.textContent = `LV ${result.level}`;
+  resultSeasonBest.textContent = result.seasonBest == null ? '—' : result.seasonBest.toLocaleString();
+  resultRank.textContent = result.rank ? `#${result.rank}` : '—';
+}
+
+async function submitCompletedRankedRun(resultRunId, finalScore, finalLevel) {
+  if (!rankedSession || !completedRunLedger) return;
+  let nextResult;
+  try {
+    const [{submitRankedRun}, {loadTopScores}] = await Promise.all([
+      import('./ranked-service.js'),
+      getLeaderboardApi(),
+    ]);
+    const submission = await submitRankedRun(rankedSession.runId, completedRunLedger);
+    const leaderboard = await loadTopScores(runPlatform, rankedSession.season).catch(() => null);
+    nextResult = createGameResult({
+      ranked:true,
+      score:finalScore,
+      level:finalLevel,
+      submission,
+      leaderboard,
+    });
+  } catch {
+    nextResult = createGameResult({ranked:true, score:finalScore, level:finalLevel, offline:true});
+  }
+  if (runId !== resultRunId || !overlay.classList.contains('game-over')) return;
+  currentGameResult = nextResult;
+  renderGameResult(currentGameResult);
 }
 
 function startLoop() {
@@ -1508,8 +1553,7 @@ function showLeaderboardSkeleton(targetList) {
   targetList.replaceChildren(...rows);
 }
 
-async function refreshLeaderboard(targetList = leaderboardList) {
-  leaderboardTitle.textContent = 'TOP 50';
+async function refreshLeaderboard(targetList = homeLeaderboardList) {
   rankingPlatformTabs.forEach(tab => {
     const selected = tab.dataset.rankingPlatform === rankingPlatform;
     tab.setAttribute('aria-selected', String(selected));
@@ -1518,7 +1562,8 @@ async function refreshLeaderboard(targetList = leaderboardList) {
   showLeaderboardSkeleton(targetList);
   try {
     const { loadTopScores } = await getLeaderboardApi();
-    const { entries, myBest, season } = await loadTopScores(rankingPlatform);
+    const result = await loadTopScores(rankingPlatform);
+    const { entries, myBest, season } = result;
     if (targetList === homeLeaderboardList) {
       rankingMyBest.textContent = myBest
         ? `MY BEST · ${myBest.score.toLocaleString()} · LV ${myBest.level}`
@@ -1538,8 +1583,10 @@ async function refreshLeaderboard(targetList = leaderboardList) {
       return item;
     }));
     if (!entries.length) targetList.innerHTML = '<li><strong>아직 등록된 기록이 없습니다.</strong></li>';
+    return result;
   } catch {
     targetList.innerHTML = '<li><strong>랭킹을 불러오지 못했습니다.</strong></li>';
+    return null;
   } finally {
     targetList.removeAttribute('aria-busy');
     targetList.removeAttribute('aria-label');
@@ -1561,9 +1608,10 @@ function closeHomeRanking() {
 
 async function shareGame() {
   const url = `${location.origin}${location.pathname}`;
+  const result = currentGameResult || createGameResult({ranked:false, score, level});
   const data = {
     title: 'COLOR BOMB',
-    text: `COLOR BOMB에서 ${score.toLocaleString()}점 달성! 같은 색 블록을 6칸 이상 연결하고 거대한 연쇄에 도전해보세요.`,
+    text: createShareText(result, runPlatform === 'mobile' ? '모바일' : '데스크탑'),
     url,
   };
   try {
@@ -1585,8 +1633,8 @@ async function shareGame() {
 }
 
 function showShareCopied() {
-  shareButton.textContent = 'COPIED ✓';
-  setTimeout(() => { shareButton.innerHTML = 'SHARE <span>↗</span>'; }, 1400);
+  shareButton.textContent = '링크 복사됨 ✓';
+  setTimeout(() => { shareButton.innerHTML = '공유하기 <span>↗</span>'; }, 1400);
 }
 
 function softDrop() {
@@ -1639,11 +1687,10 @@ async function startSelectedMode(mode) {
   else reset(mode, pendingRankedSession);
 }
 
-document.querySelector('#startButton').addEventListener('click', () => startSelectedMode(
-  overlay.classList.contains('game-over') ? gameMode : GAME_MODES.PRACTICE,
-));
+startButton.addEventListener('click', () => startSelectedMode(GAME_MODES.PRACTICE));
 rankedStartButton.addEventListener('click', () => startSelectedMode(GAME_MODES.RANKED));
 rankingButton.addEventListener('click', openHomeRanking);
+homeButton.addEventListener('click', returnHome);
 profileButton.addEventListener('click', () => {
   openAppPanel(profilePanel, profileButton);
   loadProfilePanel();
@@ -1711,6 +1758,7 @@ resetLocalDataButton.addEventListener('click', () => {
     'color-tetrix-tutorial-seen',
     'color-bomb-run-snapshot-v1',
     'color-bomb-pending-best-score-v1',
+    'color-bomb-pending-ranked-run-v1',
   ]) {
     try { localStorage.removeItem(key); } catch { /* private mode */ }
   }
@@ -1734,49 +1782,14 @@ rankingPlatformTabs.forEach(tab => {
     refreshLeaderboard(homeLeaderboardList);
   });
 });
-scoreForm.addEventListener('submit', async event => {
-  event.preventDefault();
-  if (scoreSubmitted) return;
-  const submitButton = scoreForm.querySelector('button');
-  submitButton.disabled = true;
-  scoreStatus.textContent = '최고 점수를 기록하는 중…';
-  try {
-    const { normalizePlayerName, submitScore } = await getLeaderboardApi();
-    const name = normalizePlayerName(playerNameInput.value);
-    if (!name) {
-      scoreStatus.textContent = '플레이어 이름을 입력해주세요.';
-      playerNameInput.focus();
-      return;
-    }
-    const result = gameMode === GAME_MODES.RANKED && rankedSession
-      ? await import('./ranked-service.js').then(({submitRankedRun}) =>
-          submitRankedRun(rankedSession.runId, completedRunLedger))
-      : await submitScore(name, score, level);
-    rememberPlayerName(result.name);
-    playerNameInput.value = result.name;
-    scoreSubmitted = true;
-    scoreStatus.textContent = result.queued
-      ? '기록을 안전하게 검증하고 있습니다.'
-      : result.updated ? '새로운 최고 점수를 기록했습니다.' : '기존 최고 점수가 더 높습니다.';
-    await refreshLeaderboard();
-  } catch (error) {
-    scoreStatus.textContent = error?.message || '점수를 기록하지 못했습니다. 잠시 후 다시 시도해주세요.';
-  } finally {
-    submitButton.disabled = scoreSubmitted;
-  }
-});
 shareButton.addEventListener('click', shareGame);
 document.querySelectorAll('[data-access-action]').forEach(button => {
   button.addEventListener('click', () => act(button.dataset.accessAction));
 });
-document.querySelector('#soundButton').addEventListener('click',e=>{
-  muted=!muted;
-  e.currentTarget.textContent=muted?'×':'♪';
-  e.currentTarget.setAttribute('aria-label',muted?'소리 켜기':'소리 끄기');
-  if (muted) stopMusic();
-  else { unlockAudioSession(); tone(440,.05); }
+document.querySelector('#pauseButton').addEventListener('click', () => {
+  pauseForInterruption();
+  requestResumeAfterInterruption();
 });
-document.querySelector('#helpButton').addEventListener('click',()=>openTutorial(false));
 tutorialClose.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial(); });
 tutorialDismiss.addEventListener('click',()=>{ unlockAudioSession(); closeTutorial(); });
 gameShell.addEventListener('contextmenu',e=>e.preventDefault());
@@ -1805,8 +1818,20 @@ function pauseForInterruption() {
 function requestResumeAfterInterruption() {
   if (!autoPaused || document.hidden || !tutorial.hidden) return;
   gameShell.inert = true;
+  resumeDialog.querySelector('#resumeTitle').innerHTML = '잠시<br />멈췄습니다';
+  resumeDialog.querySelector('.resume-card > p:not(.overlay-kicker)').textContent =
+    '준비되면 이어서 플레이하세요.';
   resumeDialog.hidden = false;
   resumeButton.focus({ preventScroll: true });
+}
+
+function openTutorialFromPause() {
+  if (!autoPaused) return;
+  tutorialFromPause = true;
+  resumeDialog.hidden = true;
+  tutorialSheet.scrollTop = 0;
+  tutorial.hidden = false;
+  tutorialDismiss.focus({preventScroll:true});
 }
 
 function continueAfterInterruption() {
@@ -1835,11 +1860,35 @@ function discardSavedRun() {
   overlay.classList.remove('game-over', 'ranking-view');
   overlayTitle.innerHTML = '낙하가 끝나면<br />연쇄가 시작된다';
   overlayCopy.textContent = '같은 색 블록을 6칸 이상 연결하세요. 무너진 블록이 새로운 연쇄를 만듭니다.';
-  document.querySelector('#startButton').innerHTML = '연습하기 <span>▶</span>';
+  startButton.innerHTML = '연습하기 <span>▶</span>';
+  startButton.hidden = false;
   rankedStartButton.hidden = false;
   rankingButton.hidden = false;
   shareButton.hidden = true;
+  homeButton.hidden = true;
   runModeStatus.hidden = true;
+}
+
+function returnHome() {
+  stopLoop();
+  runId++;
+  running = false;
+  paused = false;
+  document.body.classList.remove('playing');
+  overlay.classList.add('visible');
+  overlay.classList.remove('game-over', 'ranking-view');
+  overlayTitle.innerHTML = '낙하가 끝나면<br />연쇄가 시작된다';
+  overlayCopy.textContent = '같은 색 블록을 6칸 이상 연결하세요. 무너진 블록이 새로운 연쇄를 만듭니다.';
+  scoreRecord.hidden = true;
+  startButton.hidden = false;
+  startButton.innerHTML = '연습하기 <span>▶</span>';
+  rankedStartButton.hidden = false;
+  rankingButton.hidden = false;
+  shareButton.hidden = true;
+  homeButton.hidden = true;
+  runModeStatus.hidden = true;
+  currentGameResult = null;
+  refreshRankedAvailability();
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -1852,6 +1901,7 @@ window.addEventListener('pagehide', () => {
 });
 window.addEventListener('pageshow', requestResumeAfterInterruption);
 resumeButton.addEventListener('click', continueAfterInterruption);
+resumeHelpButton.addEventListener('click', openTutorialFromPause);
 resumeDiscardButton.addEventListener('click', discardSavedRun);
 
 canvas.addEventListener('pointerdown',e=>{

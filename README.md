@@ -81,15 +81,16 @@
 
 ### TOP 50 기록
 
-- Firebase 익명 UID별 최고 점수와 도달 레벨 기록
-- 점수·도달 레벨을 함께 표시하는 전체 TOP 50 조회
-- 기존 최고 점수보다 높은 경우에만 갱신
-- 기존 점수 컬렉션과 분리된 `best_scores/{uid}` 문서 구조
-- 네트워크 실패 시 미전송 최고 점수를 기기에 보관하고 다음 연결 때 재시도
-- 플레이어 이름을 브라우저에 기억
-- 별도 가입 없이 Firebase 익명 인증으로 설치별 UID 유지
+- 연습 모드는 무제한이며 랭킹 도전은 하루 3회 제공
+- Firebase 익명 UID로 즉시 참여하고 Google 계정 연결은 마이페이지에서 선택
+- 서버가 조각 순서와 전체 배치 기록을 재생해 점수·레벨·통계를 검증
+- 월간 시즌과 모바일·데스크탑을 분리한 TOP 50
+- 게임 종료 시 이름 입력 없이 시즌 최고 기록을 자동 갱신
+- 첫 기록·신기록·기존 기록·오프라인 결과와 현재 순위 표시
+- 네트워크 실패 시 검증할 실행 기록을 기기에 보관하고 다음 연결 때 재시도
+- 종료 시즌의 개인 최고·TOP 50·TOP 10·TOP 1 배지를 마이페이지에 보관
 
-현재 TOP 50은 클라이언트가 제출한 점수를 기준으로 동작합니다. UID별 최고 기록과 Firestore 규칙으로 일반적인 중복·낮은 점수 덮어쓰기를 막지만, 서버에서 플레이 과정을 검증하는 부정행위 방지 시스템은 아직 포함하지 않습니다.
+게임오버 화면에는 `공유하기`와 `홈으로`만 표시됩니다. 공유 문구에는 점수, 레벨과 TOP 50 안의 시즌 순위가 포함되며 실행 토큰이나 사용자 ID는 포함하지 않습니다.
 
 ### 모바일 및 오디오
 
@@ -176,7 +177,7 @@ Firebase CLI에 로그인하고 프로젝트 접근 권한이 있는 상태에�
 firebase deploy --only firestore,hosting --project color-tetrix-aimho
 ```
 
-`npm run deploy`는 Hosting과 Firestore 규칙을 함께 배포합니다. 점수는 Firebase 익명 UID별 최고 기록 한 건으로 저장되며, 인증된 사용자는 TOP 50을 조회할 수 있습니다.
+`npm run deploy`는 Hosting과 Firestore 규칙을 배포합니다. 랭킹 검증, 자동 기록과 프로필·시즌 배지 변경 시에는 `firebase deploy --only functions,firestore,hosting`으로 Functions도 함께 배포해야 합니다.
 
 관련 설정 파일:
 
@@ -226,3 +227,4 @@ public/              # 아이콘, OG 이미지, 매니페스트, Service Worker
 구현된 범위는 싱글 플레이 Endless 모드입니다. 멀티플레이, 아이템, 특수 블록 확장, 앱스토어 출시는 현재 포함하지 않습니다.
 
 유료화와 장기 콘텐츠 검토안은 [`docs/monetization-plan.md`](docs/monetization-plan.md)에 별도로 정리되어 있습니다.
+요구사항 대비 구현 차이는 [`docs/implementation-deviations.md`](docs/implementation-deviations.md), 다음 작업은 [`docs/follow-up-work.md`](docs/follow-up-work.md)에서 관리합니다.
