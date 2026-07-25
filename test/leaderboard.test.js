@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_RECORDED_LEVEL, normalizeLevel, normalizePlayerName, normalizeScore, selectPendingScore, shouldReplaceBestScore } from '../src/leaderboard.js';
+import { MAX_RECORDED_LEVEL, RULE_VERSION, normalizeLevel, normalizePlayerName, normalizeScore, selectPendingScore, shouldReplaceBestScore } from '../src/leaderboard.js';
 
 test('플레이어 이름의 공백과 길이를 정리한다', () => {
   assert.equal(normalizePlayerName('  COLOR   MASTER  123 '), 'COLOR MASTER');
@@ -34,4 +34,8 @@ test('미전송 기록도 가장 높은 점수 하나만 보존한다', () => {
   const higher = { name: 'C', score: 400, level: 4 };
   assert.equal(selectPendingScore(previous, lower), previous);
   assert.equal(selectPendingScore(previous, higher), higher);
+});
+
+test('경쟁 규칙 버전을 점수 기록과 함께 관리한다', () => {
+  assert.equal(RULE_VERSION, 2);
 });

@@ -1,63 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addReactorArrows,
-  createReactorState,
-  finishReactor,
-  getReactorArrowCount,
-  getReactorDuration,
-  isReactorActive,
-  isReactorExpired,
-  pauseReactor,
-  reactorSecondsLeft,
-  resumeReactor,
-  startReactor,
+  chooseMultiplierDrop,
+  getChainPower,
+  getClearSpecialMultiplier,
+  getMultiplierRewards,
 } from '../src/reactor.js';
 
-test('리액터는 레벨에 따라 10초에서 6초까지 감소한다', () => {
-  assert.equal(getReactorDuration(1), 10000);
-  assert.equal(getReactorDuration(10), 8105);
-  assert.equal(getReactorDuration(20), 6000);
-  const reactor = startReactor(1000, getReactorDuration(1));
-  assert.equal(isReactorActive(reactor), true);
-  assert.equal(reactorSecondsLeft(reactor, 1000), 10);
-  assert.equal(isReactorExpired(reactor, 10999), false);
-  assert.equal(isReactorExpired(reactor, 11000), true);
-  assert.equal(isReactorActive(finishReactor(reactor)), false);
+test('체인 단계별 파워가 최대 4까지 누적 단위로 계산된다', () => {
+  assert.deepEqual([1,2,3,4,5,9].map(getChainPower), [0,1,2,3,4,4]);
 });
 
-test('일시정지 동안 리액터 남은 시간이 흐르지 않는다', () => {
-  const paused = pauseReactor(startReactor(1000, 10000), 5500);
-  assert.equal(reactorSecondsLeft(paused, 99999), 6);
-  assert.equal(isReactorExpired(paused, 99999), false);
-  const resumed = resumeReactor(paused, 10000);
-  assert.equal(reactorSecondsLeft(resumed, 10000), 6);
-  assert.equal(isReactorExpired(resumed, 15500), true);
+test('누적 파워 구간에 맞춰 최대 3개의 배수 셀을 지급한다', () => {
+  assert.deepEqual(getMultiplierRewards(0), ['x2']);
+  assert.deepEqual(getMultiplierRewards(2), ['x2', 'x2']);
+  assert.deepEqual(getMultiplierRewards(4), ['x2', 'x3']);
+  assert.deepEqual(getMultiplierRewards(6), ['x3', 'x3']);
+  assert.deepEqual(getMultiplierRewards(9), ['x2', 'x3', 'x3']);
 });
 
-test('삭제량에 따라 리액터 화살표가 최대 3개 생성된다', () => {
-  assert.deepEqual([5,6,8,9,11,12,30].map(getReactorArrowCount), [0,1,1,2,2,3,3]);
-});
-
-test('리액터 화살표는 실제 블록을 맞힐 수 있는 삭제 셀에만 추가된다', () => {
+test('배수 셀은 가득 찬 열을 피하고 가장 큰 연결을 만드는 색을 고른다', () => {
   const board = [
-    [2, null, null],
-    [1, 1, 1],
-    [1, 1, 1],
+    [0, null, null],
+    [0, null, null],
+    [0, 2, null],
   ];
-  const eventBoard = board.map(row => row.map(() => null));
-  const matched = new Set(['0,1','1,1','2,1','0,2','1,2','2,2']);
-  const result = addReactorArrows(matched, board, eventBoard, () => 0);
-  assert.deepEqual(result.arrows, [{ key:'0,1', direction:'up' }]);
-  assert.equal(result.eventBoard[1][0], 'up');
-  assert.deepEqual(eventBoard, board.map(row => row.map(() => null)));
+  const target = chooseMultiplierDrop(board, 4, () => 0);
+  assert.deepEqual(target, { x:1, y:1, color:0, connectionSize:4 });
+  assert.equal(board[1][1], null);
 });
 
-test('유효한 방향이 없으면 리액터 화살표를 만들지 않는다', () => {
-  const board = [[1,1,1],[1,1,1]];
-  const eventBoard = board.map(row => row.map(() => null));
-  const matched = new Set(['0,0','1,0','2,0','0,1','1,1','2,1']);
-  const result = addReactorArrows(matched, board, eventBoard, () => 0);
-  assert.equal(result.arrows.length, 0);
-  assert.deepEqual(createReactorState(), { active:false, until:0, pausedRemaining:0 });
+test('모든 열이 가득 차면 배수 셀을 투하하지 않는다', () => {
+  assert.equal(chooseMultiplierDrop([[0,1], [2,3]], 4), null);
+});
+
+test('한 삭제 단계의 배수는 곱하되 6배를 넘지 않는다', () => {
+  const events = [[null, 'x2', 'x3'], ['x3', null, null]];
+  assert.equal(getClearSpecialMultiplier(new Set(['1,0']), events), 2);
+  assert.equal(getClearSpecialMultiplier(new Set(['1,0', '2,0']), events), 6);
+  assert.equal(getClearSpecialMultiplier(new Set(['0,1', '2,0']), events), 6);
 });

@@ -26,6 +26,7 @@ const db = getFirestore(app);
 const scores = collection(db, 'best_scores');
 const PENDING_SCORE_KEY = 'color-bomb-pending-best-score-v1';
 export const MAX_RECORDED_LEVEL = 999_999;
+export const RULE_VERSION = 2;
 let authPromise;
 
 export function normalizePlayerName(value) {
@@ -68,6 +69,7 @@ function readPendingScore(storage = globalThis.localStorage) {
       name,
       score: normalizeScore(value.score),
       level: normalizeLevel(value.level),
+      ruleVersion: Number.isInteger(value.ruleVersion) ? value.ruleVersion : RULE_VERSION,
     };
   } catch {
     return null;
@@ -131,6 +133,7 @@ export async function submitScore(name, score, level) {
     name: normalizedName,
     score: normalizeScore(score),
     level: normalizeLevel(level),
+    ruleVersion: RULE_VERSION,
   });
 
   try {

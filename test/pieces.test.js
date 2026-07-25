@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPieceColors, createPieceEvent, EVENT_PIECE_CHANCE, EVENT_PIECE_PITY, MONO_PIECE_PITY, rotateCellClockwise, rotateDirection, rotateSquareCells, shouldCreateMonoPiece, wallKickOffsets } from '../src/pieces.js';
+import { createPieceColors, MONO_PIECE_PITY, rotateCellClockwise, rotateDirection, rotateSquareCells, shouldCreateMonoPiece, wallKickOffsets } from '../src/pieces.js';
 
 test('5% 확률 구간에서는 단색 조각을 만든다', () => {
   assert.equal(shouldCreateMonoPiece(0, () => 0.049), true);
@@ -19,18 +19,6 @@ test('단색 조각은 네 셀이 모두 같은 색이다', () => {
 test('단색 조건이 아니면 기존 혼합 색상 생성을 사용한다', () => {
   const result = createPieceColors(4, 0, () => [0, 1, 2, 3], () => 0.9);
   assert.deepEqual(result, { colors: [0, 1, 2, 3], isMono: false });
-});
-
-test('이벤트 조각은 10% 확률로 한 셀에 방향을 부여한다', () => {
-  assert.equal(EVENT_PIECE_CHANCE, .1);
-  const result = createPieceEvent(0, 4, (() => { const values=[.099,.6,.9]; return () => values.shift(); })());
-  assert.deepEqual(result, {event:{cellIndex:2,direction:'right'},nextCount:0});
-});
-
-test('16개 조각 동안 이벤트가 없으면 다음 조각에서 보장한다', () => {
-  assert.equal(EVENT_PIECE_PITY, 16);
-  const result = createPieceEvent(EVENT_PIECE_PITY, 4, (() => { const values=[.1,.1]; return () => values.shift(); })());
-  assert.deepEqual(result, {event:{cellIndex:0,direction:'up'},nextCount:0});
 });
 
 test('O 조각은 모양을 유지한 채 색상 위치가 시계 방향으로 회전한다', () => {

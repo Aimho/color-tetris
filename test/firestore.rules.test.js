@@ -35,7 +35,7 @@ after(async () => {
 test('인증 UID 문서에는 최초 최고 점수를 기록할 수 있다', { skip: !emulatorEnabled }, async () => {
   const db = environment.authenticatedContext('player-a').firestore();
   await assertSucceeds(setDoc(doc(db, 'best_scores/player-a'), {
-    name: 'BOMB A', score: 120, level: 2,
+    name: 'BOMB A', score: 120, level: 2, ruleVersion: 2,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   }));
 });
@@ -44,18 +44,18 @@ test('본인 최고 점수보다 높은 기록만 갱신할 수 있다', { skip:
   const createdAt = Timestamp.now();
   await environment.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'best_scores/player-b'), {
-      name: 'BOMB B', score: 200, level: 3,
+      name: 'BOMB B', score: 200, level: 3, ruleVersion: 2,
       createdAt, updatedAt: Timestamp.now(),
     });
   });
   const db = environment.authenticatedContext('player-b').firestore();
   const scoreRef = doc(db, 'best_scores/player-b');
   await assertFails(setDoc(scoreRef, {
-    name: 'BOMB B', score: 199, level: 3,
+    name: 'BOMB B', score: 199, level: 3, ruleVersion: 2,
     createdAt, updatedAt: serverTimestamp(),
   }));
   await assertSucceeds(setDoc(scoreRef, {
-    name: 'BOMB B', score: 201, level: 4,
+    name: 'BOMB B', score: 201, level: 4, ruleVersion: 2,
     createdAt, updatedAt: serverTimestamp(),
   }));
 });
@@ -63,7 +63,7 @@ test('본인 최고 점수보다 높은 기록만 갱신할 수 있다', { skip:
 test('다른 UID 쓰기와 미인증·무제한 순위 조회를 차단한다', { skip: !emulatorEnabled }, async () => {
   const playerDb = environment.authenticatedContext('player-c').firestore();
   await assertFails(setDoc(doc(playerDb, 'best_scores/player-d'), {
-    name: 'BOMB C', score: 500, level: 4,
+    name: 'BOMB C', score: 500, level: 4, ruleVersion: 2,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   }));
   await assertFails(getDocs(collection(environment.unauthenticatedContext().firestore(), 'best_scores')));
@@ -71,4 +71,12 @@ test('다른 UID 쓰기와 미인증·무제한 순위 조회를 차단한다', 
   await assertFails(getDocs(query(collection(playerDb, 'best_scores'), limit(51))));
   await assertSucceeds(getDocs(query(collection(playerDb, 'best_scores'), limit(50))));
   assert.ok(true);
+});
+
+test('현재 규칙과 다른 버전으로 점수를 위장할 수 없다', { skip: !emulatorEnabled }, async () => {
+  const db = environment.authenticatedContext('player-version').firestore();
+  await assertFails(setDoc(doc(db, 'best_scores/player-version'), {
+    name: 'BOMB V', score: 900, level: 9, ruleVersion: 999,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
 });

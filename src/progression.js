@@ -47,12 +47,6 @@ export function unlockedThemes(profile) {
   ].filter(theme => theme.unlocked);
 }
 
-export function getPace(profile) {
-  if (profile.bestLevel >= 12) return { id: 3, label: 'EXPERT', multiplier: 1.2 };
-  if (profile.bestLevel >= 6) return { id: 2, label: 'RAPID', multiplier: 1.1 };
-  return { id: 1, label: 'STANDARD', multiplier: 1 };
-}
-
 export function chargeReactor(current, removedCount, chain, level = 1) {
   const earned = (removedCount * 1.5 + Math.max(0, chain - 1) * 2) * getReactorChargeRate(level);
   return Math.min(REACTOR_MAX, current + Math.round(earned));

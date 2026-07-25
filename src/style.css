@@ -252,10 +252,6 @@ body:not(.playing) .game-overlay {
     mask-composite: exclude;
     animation: board-border-flow 6s linear infinite;
   }
-
-  .board-frame.reactor-active::after {
-    animation: board-border-flow 1.8s linear infinite, reactor-signal 360ms ease-in-out infinite alternate;
-  }
 }
 
 @keyframes board-border-flow { to { background-position: 300% 0; } }
@@ -353,24 +349,6 @@ body:not(.playing) .game-overlay {
 .reactor-surge strong { grid-row: 1 / 3; grid-column: 2; font-family: "Black Han Sans"; font-size: 34px; font-weight: 400; line-height: .9; font-variant-numeric: tabular-nums; }
 .reactor-surge small { grid-column: 1; color: var(--acid); font-size: 7px; font-weight: 700; letter-spacing: .08em; }
 
-.board-frame.reactor-active {
-  box-shadow: 0 0 48px color-mix(in oklab, var(--orange) 75%, transparent), 0 0 96px color-mix(in oklab, var(--acid) 22%, transparent), inset 0 0 0 1px rgba(255,255,255,.38);
-  animation: reactor-breathe 360ms cubic-bezier(.16,1,.3,1) infinite alternate;
-}
-.board-frame.reactor-active::after {
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.38);
-  animation: board-border-flow 1.8s linear infinite, reactor-signal 360ms ease-in-out infinite alternate;
-}
-.board-frame.reactor-active #gameCanvas { cursor: default; }
-
-@keyframes reactor-breathe {
-  from { transform: scale(1); }
-  to { transform: scale(1.004); }
-}
-@keyframes reactor-signal {
-  from { opacity: .35; }
-  to { opacity: 1; }
-}
 body[data-theme="ember"] { --acid: oklch(79% .18 55); --orange: oklch(69% .22 25); }
 body[data-theme="aurora"] { --acid: oklch(82% .16 180); --orange: oklch(72% .19 315); }
 
@@ -883,7 +861,7 @@ body.playing footer { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .leaderboard-skeleton::before,
   .skeleton-bar { animation: none !important; }
-  .board-frame::after, .board-frame.reactor-active::after { animation: none !important; background-position: 50% 0; opacity: 1; }
+  .board-frame::after { animation: none !important; background-position: 50% 0; opacity: 1; }
   .demo-scene, .demo-clear-cluster > i, .demo-drop-label, .demo-shards b, .demo-result, .demo-reactor-beam, .demo-reactor-cluster > i[data-arrow]::after, .demo-tabs b { animation: none !important; }
   .demo-clear-scene, .demo-clear-cluster > i { opacity: 1; transform: none; }
   .demo-reactor-scene { display: none; }

@@ -2,12 +2,12 @@ import './style.css';
 import { actionForKey, canStartPointerGesture, dragStepTarget, installCanvasInputGuards } from './input.js';
 import { findColorGroups, groupSizesByCell } from './board.js';
 import { configureAudioSession, createAudioContext, primeLegacyMediaChannel, resumeIfSuspended, unlockAudioContext } from './audio.js';
-import { createPieceColors, createPieceEvent, rotateCellClockwise, rotateSquareCells, wallKickOffsets } from './pieces.js';
+import { createPieceColors, rotateCellClockwise, rotateSquareCells, wallKickOffsets } from './pieces.js';
 import { MusicEngine } from './music.js';
 import { canResetLock, getClearIntensity, getClearScore, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
-import { resolveArrowEffects } from './events.js';
-import { chargeReactor, finishRun, getPace, readProfile, unlockedThemes } from './progression.js';
-import { addReactorArrows, createReactorState, finishReactor as finishReactorState, getReactorDuration, isReactorActive, isReactorExpired, pauseReactor, reactorSecondsLeft, resumeReactor, startReactor } from './reactor.js';
+import { attachQueuedSpecial, createSpecialRewardQueue, earnSpecialRewards, resolveSpecialEffects } from './events.js';
+import { chargeReactor, finishRun, readProfile, unlockedThemes } from './progression.js';
+import { chooseMultiplierDrop, getChainPower, getClearSpecialMultiplier, getMultiplierRewards } from './reactor.js';
 import { setupPwa } from './pwa.js';
 
 const COLS = 10;
@@ -17,6 +17,7 @@ const CELL = 34;
 const SPAWN_X = Math.floor((COLS - 4) / 2);
 const COLORS = ['#ff6542', '#e9f65b', '#45d6a5', '#f28bd5'];
 const MAX_SHARDS = 360;
+const GAME_SPEED_MULTIPLIER = 1.2;
 const SHAPES = {
   I: [[0,1],[1,1],[2,1],[3,1]], O: [[1,0],[2,0],[1,1],[2,1]],
   T: [[1,0],[0,1],[1,1],[2,1]], S: [[1,0],[2,0],[0,1],[1,1]],
@@ -61,7 +62,6 @@ const shareButton = document.querySelector('#shareButton');
 const reactorStatus = document.querySelector('#reactorStatus');
 const reactorValue = document.querySelector('#reactorValue');
 const reactorInstruction = document.querySelector('#reactorInstruction');
-const paceButton = document.querySelector('#paceButton');
 const themeButton = document.querySelector('#themeButton');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -70,16 +70,17 @@ let board, eventBoard, active, queue, hold, holdUsed, score, level, lines, runni
 let lastTime = 0, dropTimer = 0, resolving = false, muted = false;
 let shapeBag = [], colorBag = [];
 let runId = 0, lockTimer = 0, lockResets = 0;
-let piecesSinceMono = 0, piecesSinceEvent = 0, particles = [];
-let arrowBeams = [], clearingCells = new Set();
+let piecesSinceMono = 0, particles = [];
+let arrowBeams = [], bombBursts = [], multiplierBursts = [], multiplierDrops = [], clearingCells = new Set();
+let specialRewards = createSpecialRewardQueue();
 let tutorialStartsGame = false, piecesSpawned = 0, hintTimer;
 let tutorialOpener = null, autoPaused = false;
 let gestureStart = null;
 let scoreSubmitted = false;
 let leaderboardApiPromise;
 let randomSource = Math.random;
-let reactorCharge = 0, reactor = createReactorState(), maxChain = 0;
-let profile = readProfile(), pace = getPace(profile);
+let reactorCharge = 0, reactorPower = 0, maxChain = 0;
+let profile = readProfile();
 let reactorRenderKey = '';
 let animationFrameId = null;
 
@@ -114,15 +115,13 @@ function takeColors() {
 function makePiece() {
   const type = takeShape();
   const result = createPieceColors(COLORS.length, piecesSinceMono, takeColors, randomSource);
-  const eventResult = createPieceEvent(piecesSinceEvent, SHAPES[type].length, randomSource);
   piecesSinceMono = result.isMono ? 0 : piecesSinceMono + 1;
-  piecesSinceEvent = eventResult.nextCount;
   const colors = result.colors;
   return {
     type,
     cells: SHAPES[type].map((p, i) => ({
       x:p[0], y:p[1], color:colors[i],
-      event: eventResult.event?.cellIndex === i ? eventResult.event.direction : null,
+      event: null,
     })),
     x:SPAWN_X, y:-1, rotation:0,
   };
@@ -131,6 +130,9 @@ function makePiece() {
 function refillQueue() { while (queue.length < 3) queue.push(makePiece()); }
 
 function spawn() {
+  const assigned = attachQueuedSpecial(queue[0], specialRewards, randomSource);
+  queue[0] = assigned.piece;
+  specialRewards = assigned.rewards;
   active = queue.shift();
   active.x = SPAWN_X; active.y = -1;
   lockResets = 0;
@@ -151,10 +153,9 @@ function reset() {
   eventBoard = Array.from({length: ROWS}, () => Array(COLS).fill(null));
   queue = []; hold = null; holdUsed = false; score = 0; level = 1; lines = 0;
   shapeBag = []; colorBag = []; resolving = false; running = true; paused = false; piecesSpawned = 0;
-  piecesSinceMono = 0; piecesSinceEvent = 0; particles = []; arrowBeams = []; clearingCells = new Set();
-  reactorCharge = 0; reactor = createReactorState(); maxChain = 0;
-  boardFrame.classList.remove('reactor-active');
-  music?.setReactor(false);
+  piecesSinceMono = 0; particles = []; arrowBeams = []; bombBursts = []; multiplierBursts = []; multiplierDrops = []; clearingCells = new Set();
+  specialRewards = createSpecialRewardQueue();
+  reactorCharge = 0; reactorPower = 0; maxChain = 0;
   refillQueue(); spawn(); updateStats();
   overlay.classList.remove('visible', 'game-over');
   closeHomeRanking();
@@ -233,36 +234,49 @@ async function resolveBoard() {
   let chain = 0;
   while (true) {
     const groups = findGroups();
-    if (!groups.length) break;
+    if (!groups.length) {
+      if (reactorCharge >= 100) {
+        await deployReactorRewards(resolvingRun);
+        if (resolvingRun !== runId) return;
+        continue;
+      }
+      break;
+    }
     chain++;
     maxChain = Math.max(maxChain, chain);
+    specialRewards = earnSpecialRewards(specialRewards, groups, chain);
     const matched = new Set(groups.flat().map(([x,y]) => `${x},${y}`));
-    const reactorBoostedClear = isReactorActive(reactor);
-    if (reactorBoostedClear) {
-      const reactorResult = addReactorArrows(matched, board, eventBoard, randomSource);
-      eventBoard = reactorResult.eventBoard;
-    }
-    const arrowResult = resolveArrowEffects(matched, board, eventBoard);
-    const {removed, beams} = arrowResult;
+    const specialResult = resolveSpecialEffects(matched, board, eventBoard);
+    const {removed, beams, bombs} = specialResult;
     const arrowRemoved = new Set(beams.flatMap(beam => beam.cells));
+    const bombRemoved = new Set(bombs.flatMap(bomb => bomb.cells));
+    const multipliers = [...removed].flatMap(key => {
+      const [x, y] = key.split(',').map(Number);
+      const event = eventBoard[y]?.[x];
+      return event === 'x2' || event === 'x3' ? [{origin:key, event}] : [];
+    });
+    const multiplierRemoved = new Set(multipliers.map(({origin}) => origin));
     chainEl.textContent = `×${chain}`;
     clearingCells = new Set(removed);
     draw();
-    if (beams.length) await playArrowBeams(beams);
+    if (beams.length || bombs.length || multipliers.length) await playSpecialEffects(beams, bombs, multipliers);
     else await pause(180);
     await waitUntilResumed(resolvingRun);
     if (resolvingRun !== runId) return;
+    const specialMultiplier = getClearSpecialMultiplier(removed, eventBoard);
     for (const key of removed) {
       const [x,y] = key.split(',').map(Number);
-      createShards(x, y, board[y][x], chain, removed.size, arrowRemoved.has(key) ? 1.5 : 1);
+      const specialForce = bombRemoved.has(key) ? 1.85 : multiplierRemoved.has(key) ? 1.7 : arrowRemoved.has(key) ? 1.5 : 1;
+      createShards(x, y, board[y][x], chain, removed.size, specialForce);
       board[y][x] = null;
       eventBoard[y][x] = null;
     }
     clearingCells = new Set();
-    const earnedScore = getClearScore(removed.size, chain);
+    const earnedScore = getClearScore(removed.size, chain, specialMultiplier);
     score += earnedScore;
     lines += removed.size;
-    if (!reactorBoostedClear) reactorCharge = chargeReactor(reactorCharge, matched.size, chain, level);
+    reactorPower += getChainPower(chain);
+    reactorCharge = chargeReactor(reactorCharge, matched.size, chain, level);
     updateReactor();
     const previousLevel = level;
     level = getLevelForClears(lines);
@@ -279,8 +293,38 @@ async function resolveBoard() {
     if (resolvingRun !== runId) return;
   }
   resolving = false; chainEl.textContent = '—';
-  if (reactorCharge >= 100) beginReactor();
-  else spawn();
+  spawn();
+}
+
+async function deployReactorRewards(resolvingRun) {
+  const rewards = getMultiplierRewards(reactorPower);
+  reactorCharge = 0;
+  reactorPower = 0;
+  gestureStart = null;
+
+  for (const event of rewards) {
+    const target = chooseMultiplierDrop(board, COLORS.length, randomSource);
+    if (!target) break;
+    callout.textContent = `REACTOR · ${event.toUpperCase()} DROP`;
+    callout.classList.remove('pop');
+    void callout.offsetWidth;
+    callout.classList.add('pop');
+    board[target.y][target.x] = target.color;
+    eventBoard[target.y][target.x] = event;
+    const duration = prefersReducedMotion ? 100 : 480;
+    const dropEffect = {...target, event, start:performance.now(), duration};
+    multiplierDrops = [dropEffect];
+    showMultiplierDropImpact(event);
+    multiplierDropSound(event);
+    draw();
+    await waitForActiveEffect(duration, resolvingRun, elapsed => {
+      dropEffect.start = performance.now() - elapsed;
+    });
+    if (resolvingRun !== runId) return;
+    multiplierDrops = [];
+  }
+
+  updateReactor();
 }
 
 function findGroups() {
@@ -322,7 +366,7 @@ function drawCell(context, x, y, colorIndex, size=CELL, alpha=1, event=null) {
   roundRect(context, px, py, s, s, size*.17); context.fill();
   context.fillStyle = 'rgba(255,255,255,.25)';
   roundRect(context, px+size*.09, py+size*.07, s-size*.18, size*.075, size*.04); context.fill();
-  if (event) drawEventArrow(context, px+s/2, py+s/2, size, event);
+  if (event) drawSpecialIcon(context, px+s/2, py+s/2, size, event);
   context.globalAlpha = 1;
 }
 
@@ -355,21 +399,63 @@ function connectionPreview() {
   return groupSizesByCell(findColorGroups(preview, 4));
 }
 
-function drawEventArrow(context, cx, cy, size, direction) {
+function drawSpecialIcon(context, cx, cy, size, special) {
+  if (special === 'bomb') {
+    drawBombIcon(context, cx, cy, size);
+    return;
+  }
+  if (special === 'x2' || special === 'x3') {
+    context.save();
+    context.fillStyle = 'rgba(7,9,9,.88)';
+    context.shadowColor = 'rgba(255,255,255,.42)';
+    context.shadowBlur = size * .08;
+    context.font = `900 ${Math.round(size * .35)}px system-ui, sans-serif`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(`×${special.slice(1)}`, cx, cy + size * .015);
+    context.restore();
+    return;
+  }
   const rotations = {up:0, right:Math.PI/2, down:Math.PI, left:-Math.PI/2};
   context.save();
   context.translate(cx, cy);
-  context.rotate(rotations[direction] || 0);
-  context.fillStyle = 'rgba(7,9,9,.72)';
+  context.rotate(rotations[special] || 0);
+  context.fillStyle = 'rgba(7,9,9,.82)';
+  context.shadowColor = 'rgba(255,255,255,.38)';
+  context.shadowBlur = size * .08;
   context.beginPath();
-  context.moveTo(0, -size*.2);
-  context.lineTo(size*.18, 0);
-  context.lineTo(size*.07, 0);
-  context.lineTo(size*.07, size*.2);
-  context.lineTo(-size*.07, size*.2);
-  context.lineTo(-size*.07, 0);
-  context.lineTo(-size*.18, 0);
+  context.moveTo(0, -size*.25);
+  context.lineTo(size*.22, -size*.01);
+  context.lineTo(size*.09, -size*.01);
+  context.lineTo(size*.09, size*.22);
+  context.lineTo(-size*.09, size*.22);
+  context.lineTo(-size*.09, -size*.01);
+  context.lineTo(-size*.22, -size*.01);
   context.closePath();
+  context.fill();
+  context.restore();
+}
+
+function drawBombIcon(context, cx, cy, size) {
+  context.save();
+  context.translate(cx, cy);
+  context.fillStyle = 'rgba(7,9,9,.86)';
+  context.shadowColor = 'rgba(255,255,255,.38)';
+  context.shadowBlur = size * .08;
+  context.beginPath();
+  context.arc(-size*.015, size*.045, size*.205, 0, Math.PI*2);
+  context.fill();
+  context.shadowBlur = 0;
+  context.strokeStyle = 'rgba(7,9,9,.86)';
+  context.lineWidth = Math.max(1.5, size*.065);
+  context.lineCap = 'round';
+  context.beginPath();
+  context.moveTo(size*.08, -size*.14);
+  context.quadraticCurveTo(size*.12, -size*.29, size*.25, -size*.25);
+  context.stroke();
+  context.fillStyle = '#fffbd0';
+  context.beginPath();
+  context.arc(size*.27, -size*.255, size*.055, 0, Math.PI*2);
   context.fill();
   context.restore();
 }
@@ -397,14 +483,29 @@ function createShards(x, y, colorIndex, chain, removedCount, force=1) {
   }
 }
 
-async function playArrowBeams(paths) {
+async function playSpecialEffects(paths, bombs, multipliers = []) {
   const start = performance.now();
   const duration = prefersReducedMotion ? 80 : 220;
   arrowBeams = paths.map(path => ({...path, start:start + (prefersReducedMotion ? 0 : path.delay), duration}));
-  arrowBeamSound(paths.length);
-  const total = Math.max(...arrowBeams.map(beam => beam.start - start + beam.duration));
+  bombBursts = bombs.map(bomb => ({
+    ...bomb,
+    start:start + (prefersReducedMotion ? 0 : bomb.delay),
+    duration:prefersReducedMotion ? 90 : 280,
+  }));
+  multiplierBursts = multipliers.map(multiplier => ({
+    ...multiplier,
+    start,
+    duration:prefersReducedMotion ? 90 : 340,
+  }));
+  if (paths.length) arrowBeamSound(paths.length);
+  if (bombs.length) bombBurstSound(bombs.length);
+  if (multipliers.length) multiplierBurstSound(multipliers);
+  const effects = [...arrowBeams, ...bombBursts, ...multiplierBursts];
+  const total = Math.max(...effects.map(effect => effect.start - start + effect.duration));
   await pause(total);
   arrowBeams = [];
+  bombBursts = [];
+  multiplierBursts = [];
 }
 
 function drawArrowBeams() {
@@ -433,6 +534,123 @@ function drawArrowBeams() {
     }
     ctx.restore();
   }
+}
+
+function drawBombBursts() {
+  const now = performance.now();
+  for (const burst of bombBursts) {
+    const progress = Math.max(0, Math.min(1, (now - burst.start) / burst.duration));
+    if (progress <= 0) continue;
+    const [x,y] = burst.origin.split(',').map(Number);
+    const cx = (x+.5)*CELL, cy = (y+.5)*CELL;
+    const eased = 1 - Math.pow(1-progress, 4);
+    ctx.save();
+    ctx.globalAlpha = 1-progress;
+    ctx.strokeStyle = '#fffbd0';
+    ctx.lineWidth = Math.max(2, CELL*.12*(1-progress));
+    ctx.shadowColor = '#ff6542';
+    ctx.shadowBlur = 24;
+    ctx.beginPath();
+    ctx.arc(cx, cy, CELL*(.25+eased*1.45), 0, Math.PI*2);
+    ctx.stroke();
+    ctx.rotate(progress * Math.PI * .5);
+    ctx.strokeStyle = `rgba(233,246,91,${.9 * (1-progress)})`;
+    ctx.lineWidth = Math.max(1.5, CELL * .07 * (1-progress));
+    for (let ray = 0; ray < 10; ray++) {
+      const angle = ray * Math.PI / 5;
+      const inner = CELL * (.3 + eased * .45);
+      const outer = CELL * (.6 + eased * 1.25);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
+      ctx.lineTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
+      ctx.stroke();
+    }
+    ctx.rotate(-progress * Math.PI * .5);
+    ctx.fillStyle = `rgba(255,101,66,${.38*(1-progress)})`;
+    for (const key of burst.cells) {
+      const [bx,by] = key.split(',').map(Number);
+      roundRect(ctx,bx*CELL+2,by*CELL+2,CELL-4,CELL-4,CELL*.16);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function drawMultiplierBursts() {
+  const now = performance.now();
+  for (const burst of multiplierBursts) {
+    const progress = Math.max(0, Math.min(1, (now - burst.start) / burst.duration));
+    if (progress <= 0) continue;
+    const [x, y] = burst.origin.split(',').map(Number);
+    const cx = (x + .5) * CELL;
+    const cy = (y + .5) * CELL;
+    const eased = 1 - Math.pow(1 - progress, 4);
+    const accent = burst.event === 'x3' ? '#f28bd5' : '#45d6a5';
+    ctx.save();
+    ctx.globalAlpha = 1 - progress;
+    ctx.strokeStyle = accent;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 22;
+    ctx.lineWidth = Math.max(2, CELL * .1 * (1-progress));
+    for (let ring = 0; ring < 2; ring++) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, CELL * (.22 + ring * .18 + eased * (1.05 + ring * .35)), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#fffbd0';
+    ctx.font = `900 ${Math.round(CELL * (.48 + eased * .42))}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`×${burst.event.slice(1)}`, cx, cy - eased * CELL * .65);
+    ctx.restore();
+  }
+}
+
+function drawMultiplierDrops() {
+  const now = performance.now();
+  for (const drop of multiplierDrops) {
+    const progress = Math.max(0, Math.min(1, (now - drop.start) / drop.duration));
+    const eased = 1 - Math.pow(1 - progress, 5);
+    const cx = (drop.x + .5) * CELL;
+    const cy = (drop.y + .5) * CELL;
+    const accent = drop.event === 'x3' ? '#f28bd5' : '#45d6a5';
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - progress * .82);
+    ctx.strokeStyle = accent;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 28;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = CELL * (.22 - progress * .12);
+    ctx.beginPath();
+    ctx.moveTo(cx, 0);
+    ctx.lineTo(cx, Math.max(CELL * .5, cy * eased));
+    ctx.stroke();
+    ctx.globalAlpha = 1 - progress;
+    ctx.lineWidth = Math.max(2, CELL * .13 * (1-progress));
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, CELL * (.25 + eased * 1.65), CELL * (.12 + eased * .48), 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#fffbd0';
+    ctx.font = `900 ${Math.round(CELL * (.52 + .34 * (1-progress)))}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`×${drop.event.slice(1)}`, cx, cy - CELL * (.55 + progress * .4));
+    ctx.restore();
+  }
+}
+
+function showMultiplierDropImpact(event) {
+  if (prefersReducedMotion) return;
+  impactFlash.className = 'impact-flash';
+  void impactFlash.offsetWidth;
+  impactFlash.className = 'impact-flash overload';
+  const force = event === 'x3' ? 9 : 6;
+  boardFrame.animate([
+    { transform:'translate(0,0) scale(1)' },
+    { transform:`translate(0,${force}px) scale(.99,1.012)` },
+    { transform:`translate(${-force*.45}px,${-force*.25}px) scale(1.006,.996)` },
+    { transform:'translate(0,0) scale(1)' },
+  ], {duration:360, easing:'cubic-bezier(.16,1,.3,1)'});
 }
 
 function showClearImpact(removedCount, chain, points) {
@@ -528,6 +746,9 @@ function draw() {
     }
   }
   drawArrowBeams();
+  drawBombBursts();
+  drawMultiplierBursts();
+  drawMultiplierDrops();
   drawClearingCells();
   drawParticles();
 }
@@ -548,55 +769,17 @@ function drawRacks() {
 
 function updateStats() { scoreEl.textContent=String(score).padStart(6,'0'); levelEl.textContent=String(level).padStart(2,'0'); }
 function updateReactor() {
-  const activeReactor = isReactorActive(reactor);
-  const value = activeReactor ? reactorSecondsLeft(reactor, performance.now()) : 0;
-  const renderKey = `${activeReactor}:${value}`;
+  const value = Math.min(100, reactorCharge);
+  const renderKey = `${value}:${reactorPower}`;
   if (renderKey === reactorRenderKey) return;
   reactorRenderKey = renderKey;
-  reactorStatus.hidden = !activeReactor;
-  reactorValue.textContent = String(value);
-  reactorInstruction.textContent = 'ARROWS ON CLEAR';
-  reactorStatus.setAttribute('aria-label', activeReactor
-    ? `리액터 ${value}초, 폭발 시 화살표 생성`
-    : '리액터 대기');
-}
-
-function beginReactor() {
-  if (!running || resolving || isReactorActive(reactor) || reactorCharge < 100) return;
-  const now = performance.now();
-  reactor = startReactor(now, getReactorDuration(level));
-  reactorCharge = 0;
-  gestureStart = null;
-  callout.textContent = 'REACTOR · RUSH';
-  callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
-  boardFrame.classList.add('reactor-active');
-  music?.setReactor(true);
-  reactorStartSound();
-  levelUpSound(20); updateReactor();
-  spawn();
-}
-
-function finishReactor() {
-  if (!isReactorActive(reactor)) return;
-  reactor = finishReactorState(reactor);
-  boardFrame.classList.remove('reactor-active');
-  music?.setReactor(false);
-  reactorFinishSound();
-  callout.textContent = 'REACTOR · END';
-  callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
-  updateReactor();
-}
-
-function pauseReactorTimer() {
-  reactor = pauseReactor(reactor, performance.now());
-}
-
-function resumeReactorTimer() {
-  reactor = resumeReactor(reactor, performance.now());
+  reactorStatus.hidden = false;
+  reactorValue.textContent = `${value}%`;
+  reactorInstruction.textContent = `POWER ${reactorPower}`;
+  reactorStatus.setAttribute('aria-label', `리액터 충전 ${value}퍼센트, 체인 파워 ${reactorPower}`);
 }
 
 function renderMeta() {
-  paceButton.textContent = `SPEED · ${pace.label}`;
   const themes = unlockedThemes(profile);
   if (!themes.some(theme => theme.id === profile.theme)) profile.theme = 'reactor';
   const theme = themes.find(item => item.id === profile.theme) || themes[0];
@@ -618,6 +801,17 @@ function showChain(n, intensity = 'clear', points = 0) {
   callout.classList.remove('pop'); void callout.offsetWidth; callout.classList.add('pop');
 }
 function pause(ms) { return new Promise(resolve=>setTimeout(resolve,ms)); }
+async function waitForActiveEffect(duration, resolvingRun, updateStart) {
+  let elapsed = 0;
+  let previous = performance.now();
+  while (elapsed < duration && resolvingRun === runId) {
+    await pause(16);
+    const now = performance.now();
+    if (!paused) elapsed += now - previous;
+    previous = now;
+    updateStart(Math.min(elapsed, duration));
+  }
+}
 async function waitUntilResumed(resolvingRun) {
   while (paused && resolvingRun === runId) await pause(50);
 }
@@ -634,7 +828,7 @@ function rememberTutorial() {
 function openTutorial(startsGame = false) {
   tutorialStartsGame = startsGame;
   tutorialOpener = document.activeElement;
-  if (running) { pauseReactorTimer(); paused = true; stopLoop(); stopMusic(); }
+  if (running) { paused = true; stopLoop(); stopMusic(); }
   gameShell.inert = true;
   tutorial.hidden = false;
   tutorialSheet.scrollTop = 0;
@@ -647,7 +841,7 @@ function closeTutorial() {
   gameShell.inert = false;
   rememberTutorial();
   if (startsGame) reset();
-  else if (running) { resumeReactorTimer(); paused = false; lastTime = performance.now(); startLoop(); startMusic(); }
+  else if (running) { paused = false; lastTime = performance.now(); startLoop(); startMusic(); }
   tutorialStartsGame = false;
   if (!startsGame) tutorialOpener?.focus?.();
   tutorialOpener = null;
@@ -663,9 +857,6 @@ function showGestureHint(message) {
 function endGame() {
   running=false; resolving=false;
   stopLoop();
-  reactor = finishReactorState(reactor);
-  boardFrame.classList.remove('reactor-active');
-  music?.setReactor(false);
   updateReactor();
   stopMusic(.32);
   overlayTitle.innerHTML='연쇄가<br />멈췄습니다';
@@ -680,7 +871,7 @@ function endGame() {
   refreshLeaderboard();
   profile = finishRun(profile, { level, clears: lines, maxChain });
   try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
-  pace = getPace(profile); renderMeta();
+  renderMeta();
   tone(90,.22);
 }
 
@@ -701,17 +892,13 @@ function loop(time) {
   if (paused) return;
   const dt=time-lastTime; lastTime=time; dropTimer+=dt;
   updateParticles(Math.min(dt, 32));
-  if (isReactorActive(reactor)) {
-    if (isReactorExpired(reactor, time)) finishReactor();
-    updateReactor();
-  }
   if (!resolving) {
     if (collides({...active, y:active.y+1})) {
       lockTimer += dt;
       if (lockTimer >= getLockDelay(level)) lock();
     } else {
       lockTimer = 0;
-      if (dropTimer > getDropInterval(level) / pace.multiplier) { move(0,1); dropTimer=0; }
+      if (dropTimer > getDropInterval(level) / GAME_SPEED_MULTIPLIER) { move(0,1); dropTimer=0; }
     }
   }
   updateReactor(); draw(); startLoop();
@@ -722,7 +909,6 @@ function ensureAudio() {
   if (!audio || audio.state === 'closed') {
     audio=createAudioContext(window);
     music = audio ? new MusicEngine(audio) : null;
-    music?.setReactor(isReactorActive(reactor));
   }
   if (!audio) return null;
   resumeIfSuspended(audio).catch(()=>{});
@@ -757,38 +943,6 @@ function tone(freq,duration) {
   const osc=context.createOscillator(), gain=context.createGain();
   osc.type='square'; osc.frequency.value=freq; gain.gain.setValueAtTime(.025,context.currentTime); gain.gain.exponentialRampToValueAtTime(.001,context.currentTime+duration);
   osc.connect(gain).connect(context.destination); osc.start(); osc.stop(context.currentTime+duration);
-}
-
-function reactorStartSound() {
-  if (muted) return;
-  const context = ensureAudio();
-  if (!context) return;
-  const now = context.currentTime;
-  for (const [start, end, type, volume] of [[58, 174, 'sawtooth', .09], [220, 880, 'square', .045]]) {
-    const oscillator = context.createOscillator(), gain = context.createGain();
-    oscillator.type = type;
-    oscillator.frequency.setValueAtTime(start, now);
-    oscillator.frequency.exponentialRampToValueAtTime(end, now + .42);
-    gain.gain.setValueAtTime(volume, now);
-    gain.gain.exponentialRampToValueAtTime(.001, now + .48);
-    oscillator.connect(gain).connect(context.destination);
-    oscillator.start(now); oscillator.stop(now + .48);
-  }
-}
-
-function reactorFinishSound() {
-  if (muted) return;
-  const context = ensureAudio();
-  if (!context) return;
-  const now = context.currentTime;
-  const oscillator = context.createOscillator(), gain = context.createGain();
-  oscillator.type = 'sawtooth';
-  oscillator.frequency.setValueAtTime(760, now);
-  oscillator.frequency.exponentialRampToValueAtTime(82, now + .28);
-  gain.gain.setValueAtTime(.07, now);
-  gain.gain.exponentialRampToValueAtTime(.001, now + .32);
-  oscillator.connect(gain).connect(context.destination);
-  oscillator.start(now); oscillator.stop(now + .32);
 }
 
 function shatterSound(chain, removedCount) {
@@ -839,6 +993,69 @@ function arrowBeamSound(beamCount) {
   oscillator.connect(gain).connect(context.destination);
   oscillator.start(now);
   oscillator.stop(now + .23);
+}
+
+function bombBurstSound(bombCount) {
+  if (muted) return;
+  const context = ensureAudio();
+  if (!context) return;
+  const now = context.currentTime;
+  const duration = .24;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) {
+    const decay = Math.pow(1 - i / data.length, 2.4);
+    data[i] = (Math.random() * 2 - 1) * decay;
+  }
+  const blast = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  blast.buffer = buffer;
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(420 + Math.min(bombCount, 3) * 80, now);
+  filter.frequency.exponentialRampToValueAtTime(110, now + duration);
+  gain.gain.setValueAtTime(.12, now);
+  gain.gain.exponentialRampToValueAtTime(.001, now + duration);
+  blast.connect(filter).connect(gain).connect(context.destination);
+  blast.start(now);
+}
+
+function multiplierDropSound(event) {
+  if (muted) return;
+  const context = ensureAudio();
+  if (!context) return;
+  const now = context.currentTime;
+  const strength = event === 'x3' ? 1.18 : 1;
+  for (const [frequency, delay] of [[980, 0], [490, .055], [196, .1]]) {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = delay < .1 ? 'square' : 'sine';
+    oscillator.frequency.setValueAtTime(frequency * strength, now + delay);
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(70, frequency * .42), now + delay + .16);
+    gain.gain.setValueAtTime(delay < .1 ? .052 : .1, now + delay);
+    gain.gain.exponentialRampToValueAtTime(.001, now + delay + .2);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start(now + delay);
+    oscillator.stop(now + delay + .21);
+  }
+}
+
+function multiplierBurstSound(multipliers) {
+  if (muted) return;
+  const context = ensureAudio();
+  if (!context) return;
+  const now = context.currentTime;
+  const strongest = multipliers.some(({event}) => event === 'x3');
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = 'triangle';
+  oscillator.frequency.setValueAtTime(strongest ? 520 : 440, now);
+  oscillator.frequency.exponentialRampToValueAtTime(strongest ? 1240 : 880, now + .16);
+  gain.gain.setValueAtTime(.075, now);
+  gain.gain.exponentialRampToValueAtTime(.001, now + .25);
+  oscillator.connect(gain).connect(context.destination);
+  oscillator.start(now);
+  oscillator.stop(now + .25);
 }
 
 function levelUpSound(nextLevel) {
@@ -986,7 +1203,6 @@ rankingCloseButton.addEventListener('click', () => {
   rankingButton.focus();
 });
 themeButton.addEventListener('click', cycleTheme);
-paceButton.addEventListener('click',()=>showGestureHint(`추천 속도 · ${pace.label}`));
 scoreForm.addEventListener('submit', async event => {
   event.preventDefault();
   if (scoreSubmitted) return;
@@ -1037,7 +1253,6 @@ window.addEventListener('keydown',e=>{
 });
 function pauseForInterruption() {
   if (!running || autoPaused || !tutorial.hidden) return;
-  pauseReactorTimer();
   paused = true;
   stopLoop();
   autoPaused = true;
@@ -1058,7 +1273,6 @@ function continueAfterInterruption() {
   resumeDialog.hidden = true;
   gameShell.inert = false;
   autoPaused = false;
-  resumeReactorTimer();
   paused = false;
   lastTime = performance.now();
   startLoop();

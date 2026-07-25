@@ -2,7 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function validScore(data) {
-      return data.keys().hasOnly(['name', 'score', 'level', 'createdAt', 'updatedAt'])
+      return data.keys().hasOnly(['name', 'score', 'level', 'ruleVersion', 'createdAt', 'updatedAt'])
         && data.name is string
         && data.name.size() > 0
         && data.name.size() <= 12
@@ -12,6 +12,8 @@ service cloud.firestore {
         && data.level is int
         && data.level >= 1
         && data.level <= 999999
+        && data.ruleVersion is int
+        && data.ruleVersion == 2
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
