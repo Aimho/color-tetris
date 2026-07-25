@@ -19,7 +19,18 @@ export function getKstWeek(date = new Date()) {
 }
 
 export function defaultProfile() {
-  return { games: 0, bestLevel: 1, totalClears: 0, bestChain: 0, theme: 'reactor' };
+  return {
+    games:0,
+    bestScore:0,
+    bestLevel:1,
+    totalClears:0,
+    bombsEarned:0,
+    reactorUses:0,
+    bestChain:0,
+    bestChainPower:0,
+    theme:'reactor',
+    lastSyncedAt:0,
+  };
 }
 
 export function readProfile(storage = globalThis.localStorage) {
@@ -27,13 +38,25 @@ export function readProfile(storage = globalThis.localStorage) {
   catch { return defaultProfile(); }
 }
 
-export function finishRun(profile, { level, clears, maxChain }) {
+export function finishRun(profile, {
+  score = 0,
+  level,
+  clears,
+  bombsEarned = 0,
+  reactorUses = 0,
+  maxChain,
+  maxChainPower = 0,
+}) {
   return {
     ...profile,
     games: profile.games + 1,
+    bestScore:Math.max(profile.bestScore, score),
     bestLevel: Math.max(profile.bestLevel, level),
     totalClears: profile.totalClears + clears,
+    bombsEarned:profile.bombsEarned + bombsEarned,
+    reactorUses:profile.reactorUses + reactorUses,
     bestChain: Math.max(profile.bestChain, maxChain),
+    bestChainPower:Math.max(profile.bestChainPower, maxChainPower),
   };
 }
 

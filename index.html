@@ -34,6 +34,8 @@
           <h1>COLOR<br /><span>BOMB</span></h1>
         </div>
         <div class="header-actions">
+          <button class="icon-button home-only-action" id="profileButton" aria-label="마이페이지 열기">◎</button>
+          <button class="icon-button home-only-action" id="settingsButton" aria-label="설정 열기">⚙</button>
           <button class="icon-button" id="helpButton" aria-label="조작 방법 보기">?</button>
           <button class="icon-button" id="soundButton" aria-label="소리 켜기 또는 끄기">♪</button>
         </div>
@@ -95,7 +97,7 @@
             </section>
             <div class="end-actions">
               <button id="startButton" data-game-mode="practice">연습하기 <span>▶</span></button>
-              <button id="rankedStartButton" data-game-mode="ranked" disabled title="서버 랭킹 연결 후 활성화">랭킹 준비 중 <span>◆</span></button>
+              <button id="rankedStartButton" data-game-mode="ranked" disabled title="랭킹 서버에 연결하는 중">로딩 중… <span>◆</span></button>
               <button id="rankingButton">TOP 50 <span>◆</span></button>
               <button id="shareButton" hidden>SHARE <span>↗</span></button>
             </div>
@@ -118,6 +120,90 @@
         <button type="button" data-access-action="drop">즉시 낙하</button>
       </section>
     </main>
+
+    <section class="app-panel" id="profilePanel" aria-labelledby="profilePanelTitle" hidden>
+      <div class="app-panel-shell">
+        <header class="app-panel-head">
+          <div><p>PLAYER FILE</p><h2 id="profilePanelTitle">마이페이지</h2></div>
+          <button class="panel-close" type="button" data-close-panel="profilePanel" aria-label="마이페이지 닫기">×</button>
+        </header>
+        <div class="profile-identity">
+          <span class="profile-mark" aria-hidden="true">CB</span>
+          <div>
+            <p id="profileConnection">프로필 연결 중…</p>
+            <strong id="profileNickname">불러오는 중…</strong>
+          </div>
+        </div>
+        <div class="profile-badges" id="profileBadges" aria-label="획득한 시즌 배지"></div>
+        <form class="nickname-form" id="nicknameForm">
+          <label for="nicknameInput">닉네임 변경</label>
+          <div><input id="nicknameInput" maxlength="12" autocomplete="nickname" aria-describedby="nicknameHint" /><button type="submit">변경</button></div>
+          <small id="nicknameHint">자동 닉네임은 바로 한 번 변경할 수 있습니다.</small>
+        </form>
+        <button class="social-connect" id="socialConnectButton" type="button">GOOGLE 계정 연결 <span>↗</span></button>
+        <section class="profile-section" aria-labelledby="seasonStatsTitle">
+          <div class="section-heading"><p>CURRENT SEASON</p><h3 id="seasonStatsTitle">시즌 기록</h3></div>
+          <div class="season-platforms">
+            <article><span>MOBILE</span><strong id="profileMobileScore">—</strong><small id="profileMobileLevel">기록 없음</small></article>
+            <article><span>DESKTOP</span><strong id="profileDesktopScore">—</strong><small id="profileDesktopLevel">기록 없음</small></article>
+          </div>
+        </section>
+        <section class="profile-section" aria-labelledby="lifetimeStatsTitle">
+          <div class="section-heading"><p>LOCAL CAREER</p><h3 id="lifetimeStatsTitle">플레이 기록</h3></div>
+          <dl class="profile-stats">
+            <div><dt>게임</dt><dd data-profile-stat="games">0</dd></div>
+            <div><dt>최고 점수</dt><dd data-profile-stat="bestScore">0</dd></div>
+            <div><dt>최고 레벨</dt><dd data-profile-stat="bestLevel">1</dd></div>
+            <div><dt>최고 체인</dt><dd data-profile-stat="bestChain">0</dd></div>
+            <div><dt>누적 삭제</dt><dd data-profile-stat="totalClears">0</dd></div>
+            <div><dt>폭탄 획득</dt><dd data-profile-stat="bombsEarned">0</dd></div>
+            <div><dt>리액터</dt><dd data-profile-stat="reactorUses">0</dd></div>
+            <div><dt>체인 파워</dt><dd data-profile-stat="bestChainPower">0</dd></div>
+          </dl>
+        </section>
+        <section class="profile-section" aria-labelledby="themeTitle">
+          <div class="section-heading"><p>BOARD SKIN</p><h3 id="themeTitle">테마</h3></div>
+          <div class="theme-options" id="themeOptions"></div>
+        </section>
+        <p class="panel-status" id="profileStatus" role="status"></p>
+      </div>
+    </section>
+
+    <section class="app-panel" id="settingsPanel" aria-labelledby="settingsPanelTitle" hidden>
+      <div class="app-panel-shell">
+        <header class="app-panel-head">
+          <div><p>CONTROL ROOM</p><h2 id="settingsPanelTitle">설정</h2></div>
+          <button class="panel-close" type="button" data-close-panel="settingsPanel" aria-label="설정 닫기">×</button>
+        </header>
+        <form class="settings-form" id="settingsForm">
+          <fieldset>
+            <legend>사운드와 반응</legend>
+            <label><span><b>배경음악</b><small>레벨에 따라 빨라지는 음악</small></span><input type="checkbox" name="bgm" /></label>
+            <label><span><b>효과음</b><small>폭발과 특수 셀 소리</small></span><input type="checkbox" name="effects" /></label>
+            <label class="mobile-setting"><span><b>진동</b><small>폭발 순간 짧은 햅틱</small></span><input type="checkbox" name="vibration" /></label>
+          </fieldset>
+          <fieldset>
+            <legend>화면 효과</legend>
+            <label><span><b>화면 흔들림</b><small>폭발 충격의 강도</small></span><select name="shake"><option value="low">낮음</option><option value="normal">보통</option><option value="high">높음</option></select></label>
+            <label><span><b>파티클</b><small>산산조각 효과의 양</small></span><select name="particles"><option value="low">낮음</option><option value="normal">보통</option><option value="high">높음</option></select></label>
+            <label><span><b>모션 감소</b><small>기기 설정 연동 또는 최소화</small></span><select name="reducedMotion"><option value="system">기기 설정</option><option value="reduce">줄이기</option></select></label>
+            <label><span><b>색상 구분 보조</b><small>셀 모서리에 색상별 표식</small></span><input type="checkbox" name="colorAssist" /></label>
+          </fieldset>
+          <fieldset class="mobile-setting">
+            <legend>모바일 조작</legend>
+            <label><span><b>드래그 감도</b><small>블록 한 칸 이동 거리</small></span><select name="dragSensitivity"><option value="low">낮음</option><option value="normal">보통</option><option value="high">높음</option></select></label>
+          </fieldset>
+        </form>
+        <nav class="settings-links" aria-label="지원 및 데이터">
+          <button id="openControlsButton" type="button">조작 안내 <span>→</span></button>
+          <a href="/privacy.html">개인정보 처리방침 <span>↗</span></a>
+          <a href="mailto:jjhwhwnsgh@gmail.com?subject=COLOR%20BOMB%20지원">고객 지원 <span>↗</span></a>
+          <a href="mailto:jjhwhwnsgh@gmail.com?subject=COLOR%20BOMB%20계정%20삭제">계정 삭제 요청 <span>↗</span></a>
+          <button class="danger-action" id="resetLocalDataButton" type="button">로컬 데이터 초기화 <span>×</span></button>
+        </nav>
+        <p class="settings-version" id="settingsVersion">COLOR BOMB · VER —</p>
+      </div>
+    </section>
 
     <section class="tutorial" id="tutorial" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle" hidden>
       <div class="tutorial-sheet">

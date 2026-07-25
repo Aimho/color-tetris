@@ -13,6 +13,12 @@ import {
   validateReplay,
 } from './ranking-core.js';
 import { RANKED_RANDOM_VERSION } from './shared/ranked-random.js';
+import {
+  canChangeNickname,
+  createFunnyNickname,
+  nicknameReservationId,
+  normalizeNickname,
+} from './profile-core.js';
 
 initializeApp();
 const db = getFirestore();
@@ -27,6 +33,7 @@ const OPTIONS = {
 
 export const startRankedRun = onCall(OPTIONS, async request => {
   const uid = requireRankedUid(request);
+  await getOrCreateProfile(uid);
   const requestId = normalizeRequestId(request.data?.requestId);
   const platform = safeAppPlatform(request.app?.appId);
   const now = Timestamp.now();
@@ -73,7 +80,8 @@ export const startRankedRun = onCall(OPTIONS, async request => {
 export const submitRankedRun = onCall(OPTIONS, async request => {
   const uid = requireRankedUid(request);
   const runId = String(request.data?.runId || '');
-  const name = normalizeName(request.data?.name);
+  const playerProfile = await getOrCreateProfile(uid);
+  const name = playerProfile.nickname;
   if (JSON.stringify(request.data?.ledger ?? null).length > 512_000) {
     throw new HttpsError('invalid-argument', '게임 기록이 허용 크기를 초과했습니다.');
   }
@@ -89,6 +97,7 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
       updated:initialRun.bestUpdated,
       score:initialRun.finalScore,
       level:initialRun.finalLevel,
+      name:initialRun.finalName || name,
     };
   }
   const verifiedAt = Timestamp.now();
@@ -109,7 +118,13 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
     const run = runSnapshot.data();
     assertUsableRun(run, uid);
     if (run.status === 'accepted') {
-      return {accepted:true, updated:run.bestUpdated, score:run.finalScore, level:run.finalLevel};
+      return {
+        accepted:true,
+        updated:run.bestUpdated,
+        score:run.finalScore,
+        level:run.finalLevel,
+        name:run.finalName || name,
+      };
     }
     const now = Timestamp.now();
 
@@ -122,7 +137,7 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
 
     transaction.update(runRef, {
       status:'accepted', submittedAt:now, verifiedAt:now, bestUpdated:updated,
-      finalScore:ledger.score, finalLevel:ledger.level,
+      finalScore:ledger.score, finalLevel:ledger.level, finalName:name,
     });
     transaction.create(db.doc(`ranked_submissions/${runId}`), {
       uid, name, runId, season:run.season, platform:run.platform,
@@ -137,9 +152,89 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
         achievedAt:now, updatedAt:FieldValue.serverTimestamp(),
       });
     }
-    return {accepted:true, updated, score:ledger.score, level:ledger.level};
+    return {accepted:true, updated, score:ledger.score, level:ledger.level, name};
   });
   return result;
+});
+
+export const getOrCreatePlayerProfile = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  return serializePlayerProfile(await getOrCreateProfile(uid));
+});
+
+async function getOrCreateProfile(uid) {
+  const profileRef = db.doc(`player_profiles/${uid}`);
+  const existing = await profileRef.get();
+  if (existing.exists) return existing.data();
+
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const nickname = createFunnyNickname();
+    const reservationRef = db.doc(`nickname_reservations/${nicknameReservationId(nickname)}`);
+    const created = await db.runTransaction(async transaction => {
+      const [profileSnapshot, reservationSnapshot] = await Promise.all([
+        transaction.get(profileRef),
+        transaction.get(reservationRef),
+      ]);
+      if (profileSnapshot.exists) return profileSnapshot.data();
+      if (reservationSnapshot.exists) return null;
+      const now = Timestamp.now();
+      const profile = {
+        uid,
+        nickname,
+        isCustom:false,
+        createdAt:now,
+        updatedAt:now,
+        lastNicknameChangeAt:null,
+      };
+      transaction.create(reservationRef, {uid, nickname, createdAt:now});
+      transaction.create(profileRef, profile);
+      return profile;
+    });
+    if (created) return created;
+  }
+  throw new HttpsError('resource-exhausted', '닉네임을 만들지 못했습니다. 잠시 후 다시 시도해주세요.');
+}
+
+export const updatePlayerNickname = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  const nickname = normalizeNickname(request.data?.nickname);
+  if (!nickname) throw new HttpsError('invalid-argument', '닉네임은 한글·영문·숫자로 2~12자까지 입력해주세요.');
+  const profileRef = db.doc(`player_profiles/${uid}`);
+  const reservationRef = db.doc(`nickname_reservations/${nicknameReservationId(nickname)}`);
+
+  const updated = await db.runTransaction(async transaction => {
+    const [profileSnapshot, reservationSnapshot] = await Promise.all([
+      transaction.get(profileRef),
+      transaction.get(reservationRef),
+    ]);
+    if (!profileSnapshot.exists) throw new HttpsError('failed-precondition', '프로필을 먼저 불러와주세요.');
+    const profile = profileSnapshot.data();
+    if (nicknameReservationId(profile.nickname) === nicknameReservationId(nickname)) return profile;
+    const now = Timestamp.now();
+    const change = canChangeNickname({
+      isCustom:profile.isCustom,
+      lastNicknameChangeAtMs:profile.lastNicknameChangeAt?.toMillis?.() || 0,
+    }, now.toMillis());
+    if (!change.allowed) {
+      throw new HttpsError('resource-exhausted', '닉네임은 직접 변경한 뒤 24시간 후 다시 바꿀 수 있습니다.');
+    }
+    if (reservationSnapshot.exists && reservationSnapshot.data().uid !== uid) {
+      throw new HttpsError('already-exists', '이미 사용 중인 닉네임입니다.');
+    }
+    const previousReservationRef = db.doc(`nickname_reservations/${nicknameReservationId(profile.nickname)}`);
+    transaction.delete(previousReservationRef);
+    transaction.set(reservationRef, {uid, nickname, createdAt:now});
+    const nextProfile = {
+      ...profile,
+      nickname,
+      isCustom:true,
+      lastNicknameChangeAt:now,
+      updatedAt:now,
+    };
+    transaction.set(profileRef, nextProfile);
+    return nextProfile;
+  });
+  return serializePlayerProfile(updated);
 });
 
 function assertUsableRun(run, uid) {
@@ -168,11 +263,27 @@ async function recordFailedSubmission(runRef) {
 }
 
 function requireRankedUid(request) {
+  return requireUid(request);
+}
+
+function requireUid(request) {
   if (!request.auth?.uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
-  if (request.auth.token?.firebase?.sign_in_provider === 'anonymous') {
-    throw new HttpsError('failed-precondition', '랭킹 도전은 소셜 계정 연결이 필요합니다.');
-  }
   return request.auth.uid;
+}
+
+function serializePlayerProfile(profile) {
+  const lastNicknameChangeAtMs = profile.lastNicknameChangeAt?.toMillis?.() || 0;
+  const change = canChangeNickname({
+    isCustom:profile.isCustom,
+    lastNicknameChangeAtMs,
+  });
+  return {
+    nickname:profile.nickname,
+    isCustom:Boolean(profile.isCustom),
+    lastNicknameChangeAtMs,
+    nextNicknameChangeAt:change.nextChangeAt,
+    canChangeNickname:change.allowed,
+  };
 }
 
 function safeAppPlatform(appId) {
@@ -187,15 +298,4 @@ function normalizeRequestId(value) {
     throw new HttpsError('invalid-argument', '요청 ID가 올바르지 않습니다.');
   }
   return requestId.toLowerCase();
-}
-
-function normalizeName(value) {
-  const name = String(value ?? '')
-    .normalize('NFKC')
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .slice(0, 12);
-  if (!name) throw new HttpsError('invalid-argument', '닉네임을 확인해주세요.');
-  return name;
 }

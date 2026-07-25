@@ -12,6 +12,13 @@ import { GAME_MODES, clearRunSnapshot, detectPlatform, readRunSnapshot, saveRunS
 import { createScoreLedger } from './ranking-model.js';
 import { createRankedRandom } from '../functions/shared/ranked-random.js';
 import { setupPwa } from './pwa.js';
+import {
+  dragSensitivityScale,
+  particleScale,
+  readSettings,
+  saveSettings,
+  shakeScale,
+} from './settings.js';
 
 const COLS = 10;
 const ROWS = 20;
@@ -70,8 +77,24 @@ const runModeStatus = document.querySelector('#runModeStatus');
 const reactorStatus = document.querySelector('#reactorStatus');
 const reactorValue = document.querySelector('#reactorValue');
 const reactorInstruction = document.querySelector('#reactorInstruction');
+const profileButton = document.querySelector('#profileButton');
+const settingsButton = document.querySelector('#settingsButton');
+const profilePanel = document.querySelector('#profilePanel');
+const settingsPanel = document.querySelector('#settingsPanel');
+const profileNickname = document.querySelector('#profileNickname');
+const profileConnection = document.querySelector('#profileConnection');
+const profileStatus = document.querySelector('#profileStatus');
+const nicknameForm = document.querySelector('#nicknameForm');
+const nicknameInput = document.querySelector('#nicknameInput');
+const nicknameHint = document.querySelector('#nicknameHint');
+const socialConnectButton = document.querySelector('#socialConnectButton');
+const themeOptions = document.querySelector('#themeOptions');
+const settingsForm = document.querySelector('#settingsForm');
+const openControlsButton = document.querySelector('#openControlsButton');
+const resetLocalDataButton = document.querySelector('#resetLocalDataButton');
+const settingsVersion = document.querySelector('#settingsVersion');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
-const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const reducedMotionMedia = matchMedia('(prefers-reduced-motion: reduce)');
 
 let board, eventBoard, active, queue, hold, holdUsed, score, level, lines, running, paused;
 let lastTime = 0, dropTimer = 0, resolving = false, muted = false;
@@ -105,12 +128,141 @@ let pendingRankedSession = null;
 let rankedRandomCalls = 0;
 let pieceSerialCounter = 0;
 let rankingPlatform = runPlatform;
+let settings = readSettings();
+let prefersReducedMotion = shouldReduceMotion();
+let serverProfile = null;
 
 buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
+settingsVersion.textContent = `COLOR BOMB · VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 
 function getLeaderboardApi() {
   leaderboardApiPromise ||= import('./leaderboard.js');
   return leaderboardApiPromise;
+}
+
+function shouldReduceMotion() {
+  return settings.reducedMotion === 'reduce'
+    || settings.reducedMotion === 'system' && reducedMotionMedia.matches;
+}
+
+function effectsEnabled() {
+  return !muted && settings.effects;
+}
+
+function musicEnabled() {
+  return !muted && settings.bgm;
+}
+
+function syncSettingsForm() {
+  for (const [key, value] of Object.entries(settings)) {
+    const input = settingsForm.elements.namedItem(key);
+    if (!input) continue;
+    if (input.type === 'checkbox') input.checked = value;
+    else input.value = value;
+  }
+}
+
+function applySettings(nextSettings = settings) {
+  settings = saveSettings(nextSettings);
+  prefersReducedMotion = shouldReduceMotion();
+  syncSettingsForm();
+  if (!musicEnabled()) stopMusic();
+  else if (running && !paused) startMusic();
+  draw();
+}
+
+function renderLocalProfile() {
+  document.querySelectorAll('[data-profile-stat]').forEach(element => {
+    const value = Number(profile[element.dataset.profileStat] || 0);
+    element.textContent = value.toLocaleString();
+  });
+  themeOptions.replaceChildren(...unlockedThemes(profile).map(theme => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.theme = theme.id;
+    button.textContent = theme.label;
+    button.setAttribute('aria-pressed', String(profile.theme === theme.id));
+    return button;
+  }));
+}
+
+function renderServerProfile(nextProfile) {
+  serverProfile = nextProfile;
+  profileNickname.textContent = nextProfile.nickname;
+  nicknameInput.value = nextProfile.nickname;
+  profileConnection.textContent = nextProfile.provider;
+  socialConnectButton.disabled = nextProfile.connected;
+  socialConnectButton.innerHTML = nextProfile.connected
+    ? 'GOOGLE 연결됨 <span>✓</span>'
+    : 'GOOGLE 계정 연결 <span>↗</span>';
+  nicknameForm.querySelector('button').disabled = !nextProfile.canChangeNickname;
+  nicknameHint.textContent = nextProfile.canChangeNickname
+    ? '한글·영문·숫자로 2~12자까지 입력할 수 있습니다.'
+    : `${new Date(nextProfile.nextNicknameChangeAt).toLocaleString('ko-KR')} 이후 다시 변경할 수 있습니다.`;
+  rememberPlayerName(nextProfile.nickname);
+}
+
+async function loadProfilePanel() {
+  renderLocalProfile();
+  profileStatus.textContent = '프로필과 시즌 기록을 불러오는 중…';
+  try {
+    const [{loadPlayerProfile}, {loadTopScores}] = await Promise.all([
+      import('./profile-service.js'),
+      getLeaderboardApi(),
+    ]);
+    const nextProfile = await loadPlayerProfile();
+    renderServerProfile(nextProfile);
+    const platforms = ['mobile', 'desktop'];
+    const results = await Promise.allSettled(platforms.map(platform => loadTopScores(platform)));
+    const badges = [];
+    results.forEach((result, index) => {
+      const platform = platforms[index];
+      const scoreElement = document.querySelector(`#profile${platform[0].toUpperCase()}${platform.slice(1)}Score`);
+      const levelElement = document.querySelector(`#profile${platform[0].toUpperCase()}${platform.slice(1)}Level`);
+      if (result.status !== 'fulfilled' || !result.value.myBest) {
+        scoreElement.textContent = '—';
+        levelElement.textContent = result.status === 'rejected' ? '오프라인' : '기록 없음';
+        return;
+      }
+      const {entries, myBest} = result.value;
+      const rank = entries.findIndex(entry => entry.playerId === myBest.playerId) + 1;
+      scoreElement.textContent = myBest.score.toLocaleString();
+      levelElement.textContent = `${rank ? `#${rank}` : 'TOP 50 밖'} · LV ${myBest.level}`;
+      if (rank === 1) badges.push(`${platform.toUpperCase()} TOP 1`);
+      else if (rank > 0 && rank <= 10) badges.push(`${platform.toUpperCase()} TOP 10`);
+      else if (rank > 0 && rank <= 50) badges.push(`${platform.toUpperCase()} TOP 50`);
+    });
+    document.querySelector('#profileBadges').replaceChildren(...badges.map(label => {
+      const badge = document.createElement('span');
+      badge.textContent = label;
+      return badge;
+    }));
+    profile.lastSyncedAt = Date.now();
+    try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
+    profileStatus.textContent = `로컬 기록 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')} 동기화`;
+  } catch {
+    profileNickname.textContent = savedPlayerName() || '게스트 플레이어';
+    profileConnection.textContent = '오프라인 · 로컬 기록 표시 중';
+    profileStatus.textContent = profile.lastSyncedAt
+      ? `마지막 동기화 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')}`
+      : '서버 프로필에 연결하지 못했습니다. 로컬 기록은 계속 사용할 수 있습니다.';
+  }
+}
+
+function openAppPanel(panel, opener) {
+  closeHomeRanking();
+  panel.dataset.opener = opener?.id || '';
+  gameShell.inert = true;
+  panel.hidden = false;
+  panel.scrollTop = 0;
+  panel.querySelector('.panel-close')?.focus({preventScroll:true});
+}
+
+function closeAppPanel(panel) {
+  const opener = document.querySelector(`#${panel.dataset.opener}`);
+  panel.hidden = true;
+  gameShell.inert = false;
+  opener?.focus?.({preventScroll:true});
 }
 
 async function refreshRankedAvailability() {
@@ -120,7 +272,7 @@ async function refreshRankedAvailability() {
     rankedStartButton.disabled = !status.ready;
     rankedStartButton.innerHTML = status.ready
       ? '랭킹 도전 <span>◆</span>'
-      : '랭킹 준비 중 <span>◆</span>';
+      : '로딩 중… <span>◆</span>';
     rankedStartButton.title = status.reason;
   } catch {
     rankedStartButton.disabled = true;
@@ -232,6 +384,8 @@ function createRunMetrics() {
     clearSteps:[],
     reactorCount:0,
     multiplierCells:0,
+    bombsEarned:0,
+    maxChainPower:0,
     placementLog:[],
   };
 }
@@ -325,7 +479,7 @@ function restoreRun(snapshot) {
     rankedRandomCalls,
     pieceSerialCounter,
   } = state);
-  runMetrics ||= createRunMetrics();
+  runMetrics = {...createRunMetrics(), ...(runMetrics || {})};
   const rankedRestorable = state.mode === GAME_MODES.RANKED
     && rankedSession?.seed
     && rankedSession?.expiresAt > Date.now();
@@ -459,6 +613,7 @@ async function resolveBoard() {
     }
     chain++;
     maxChain = Math.max(maxChain, chain);
+    if (!specialRewards.bomb && groups.some(group => group.length >= 9)) runMetrics.bombsEarned++;
     specialRewards = earnSpecialRewards(specialRewards, groups, chain);
     const matched = new Set(groups.flat().map(([x,y]) => `${x},${y}`));
     const specialResult = resolveSpecialEffects(matched, board, eventBoard);
@@ -498,6 +653,7 @@ async function resolveBoard() {
     score += earnedScore;
     lines += removed.size;
     reactorPower += getChainPower(chain);
+    runMetrics.maxChainPower = Math.max(runMetrics.maxChainPower, reactorPower);
     reactorCharge = chargeReactor(reactorCharge, matched.size, chain, level);
     updateReactor();
     const previousLevel = level;
@@ -505,6 +661,7 @@ async function resolveBoard() {
     music?.setLevel(level);
     updateStats();
     showClearImpact(removed.size, chain, earnedScore);
+    if (settings.vibration && isTouchDevice) navigator.vibrate?.(Math.min(60, 12 + removed.size * 2));
     shatterSound(chain, removed.size);
     if (level > previousLevel) showLevelUp(level);
     draw(); await pause(220);
@@ -599,6 +756,17 @@ function drawCell(context, x, y, colorIndex, size=CELL, alpha=1, event=null) {
   roundRect(context, px, py, s, s, size*.17); context.fill();
   context.fillStyle = 'rgba(255,255,255,.25)';
   roundRect(context, px+size*.09, py+size*.07, s-size*.18, size*.075, size*.04); context.fill();
+  if (settings.colorAssist) {
+    const corner = Math.max(3, size * .13);
+    context.fillStyle = 'rgba(7,9,9,.72)';
+    const markers = [
+      () => context.fillRect(px + 2, py + 2, corner, corner),
+      () => { context.beginPath(); context.arc(px + s - corner * .55, py + corner * .55, corner * .55, 0, Math.PI * 2); context.fill(); },
+      () => { context.beginPath(); context.moveTo(px + 2, py + corner + 2); context.lineTo(px + corner + 2, py + 2); context.lineTo(px + corner + 2, py + corner + 2); context.closePath(); context.fill(); },
+      () => { context.fillRect(px + s - corner - 2, py + 2, corner, Math.max(2, corner * .35)); context.fillRect(px + s - corner - 2, py + 2, Math.max(2, corner * .35), corner); },
+    ];
+    markers[colorIndex]?.();
+  }
   if (event) drawSpecialIcon(context, px+s/2, py+s/2, size, event);
   context.globalAlpha = 1;
 }
@@ -697,7 +865,8 @@ function createShards(x, y, colorIndex, chain, removedCount, force=1) {
   if (prefersReducedMotion) return;
   const intensity = getClearIntensity(removedCount);
   const available = Math.max(0, MAX_SHARDS - particles.length);
-  const count = Math.min(intensity.shardsPerCell + Math.min(chain - 1, 3), available);
+  const baseCount = intensity.shardsPerCell + Math.min(chain - 1, 3);
+  const count = Math.min(Math.max(1, Math.round(baseCount * particleScale(settings.particles))), available);
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2;
     const speed = .055 + Math.random() * (.07 + chain * .008);
@@ -877,7 +1046,7 @@ function showMultiplierDropImpact(event) {
   impactFlash.className = 'impact-flash';
   void impactFlash.offsetWidth;
   impactFlash.className = 'impact-flash overload';
-  const force = event === 'x3' ? 9 : 6;
+  const force = (event === 'x3' ? 9 : 6) * shakeScale(settings.shake);
   boardFrame.animate([
     { transform:'translate(0,0) scale(1)' },
     { transform:`translate(0,${force}px) scale(.99,1.012)` },
@@ -893,10 +1062,11 @@ function showClearImpact(removedCount, chain, points) {
   impactFlash.className = 'impact-flash';
   void impactFlash.offsetWidth;
   impactFlash.className = `impact-flash ${intensity.name}`;
+  const force = intensity.shake * shakeScale(settings.shake);
   boardFrame.animate([
     { transform: 'translate(0,0)' },
-    { transform: `translate(${-intensity.shake}px,${intensity.shake * .35}px)` },
-    { transform: `translate(${intensity.shake * .75}px,${-intensity.shake * .25}px)` },
+    { transform: `translate(${-force}px,${force * .35}px)` },
+    { transform: `translate(${force * .75}px,${-force * .25}px)` },
     { transform: 'translate(0,0)' },
   ], { duration: intensity.name === 'overload' ? 420 : 280, easing: 'cubic-bezier(.16,1,.3,1)' });
 }
@@ -1095,7 +1265,15 @@ function endGame() {
   playerNameInput.value = savedPlayerName();
   scoreStatus.textContent = '';
   if (gameMode === GAME_MODES.RANKED) refreshLeaderboard();
-  profile = finishRun(profile, { level, clears: lines, maxChain });
+  profile = finishRun(profile, {
+    score,
+    level,
+    clears:lines,
+    bombsEarned:runMetrics.bombsEarned || 0,
+    reactorUses:runMetrics.reactorCount,
+    maxChain,
+    maxChainPower:runMetrics.maxChainPower || 0,
+  });
   try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
   applyProfileTheme();
   tone(90,.22);
@@ -1156,7 +1334,7 @@ function unlockAudioSession() {
 }
 
 function startMusic() {
-  if (muted || !running || paused) return;
+  if (!musicEnabled() || !running || paused) return;
   const context = ensureAudio();
   if (context) music?.start(level);
 }
@@ -1164,7 +1342,7 @@ function startMusic() {
 function stopMusic(fade) { music?.stop(fade); }
 
 function tone(freq,duration) {
-  if(muted) return;
+  if(!effectsEnabled()) return;
   const context=ensureAudio();
   if (!context) return;
   const osc=context.createOscillator(), gain=context.createGain();
@@ -1173,7 +1351,7 @@ function tone(freq,duration) {
 }
 
 function shatterSound(chain, removedCount) {
-  if (muted) return;
+  if (!effectsEnabled()) return;
   const context = ensureAudio();
   if (!context) return;
   const now = context.currentTime;
@@ -1206,7 +1384,7 @@ function shatterSound(chain, removedCount) {
 }
 
 function arrowBeamSound(beamCount) {
-  if (muted) return;
+  if (!effectsEnabled()) return;
   const context = ensureAudio();
   if (!context) return;
   const now = context.currentTime;
@@ -1223,7 +1401,7 @@ function arrowBeamSound(beamCount) {
 }
 
 function bombBurstSound(bombCount) {
-  if (muted) return;
+  if (!effectsEnabled()) return;
   const context = ensureAudio();
   if (!context) return;
   const now = context.currentTime;
@@ -1248,7 +1426,7 @@ function bombBurstSound(bombCount) {
 }
 
 function multiplierDropSound(event) {
-  if (muted) return;
+  if (!effectsEnabled()) return;
   const context = ensureAudio();
   if (!context) return;
   const now = context.currentTime;
@@ -1268,7 +1446,7 @@ function multiplierDropSound(event) {
 }
 
 function multiplierBurstSound(multipliers) {
-  if (muted) return;
+  if (!effectsEnabled()) return;
   const context = ensureAudio();
   if (!context) return;
   const now = context.currentTime;
@@ -1286,7 +1464,7 @@ function multiplierBurstSound(multipliers) {
 }
 
 function levelUpSound(nextLevel) {
-  if (muted) return;
+  if (!effectsEnabled()) return;
   [0, .065, .13].forEach((delay, index) => {
     const context = ensureAudio();
     if (!context) return;
@@ -1466,6 +1644,84 @@ document.querySelector('#startButton').addEventListener('click', () => startSele
 ));
 rankedStartButton.addEventListener('click', () => startSelectedMode(GAME_MODES.RANKED));
 rankingButton.addEventListener('click', openHomeRanking);
+profileButton.addEventListener('click', () => {
+  openAppPanel(profilePanel, profileButton);
+  loadProfilePanel();
+});
+settingsButton.addEventListener('click', () => {
+  syncSettingsForm();
+  openAppPanel(settingsPanel, settingsButton);
+});
+document.querySelectorAll('[data-close-panel]').forEach(button => {
+  button.addEventListener('click', () => closeAppPanel(document.querySelector(`#${button.dataset.closePanel}`)));
+});
+nicknameForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = nicknameForm.querySelector('button');
+  button.disabled = true;
+  profileStatus.textContent = '새 닉네임을 확인하는 중…';
+  try {
+    const {changePlayerNickname} = await import('./profile-service.js');
+    renderServerProfile(await changePlayerNickname(nicknameInput.value));
+    profileStatus.textContent = '닉네임을 변경했습니다.';
+  } catch (error) {
+    profileStatus.textContent = error?.message || '닉네임을 변경하지 못했습니다.';
+    button.disabled = !serverProfile?.canChangeNickname;
+  }
+});
+socialConnectButton.addEventListener('click', async () => {
+  socialConnectButton.disabled = true;
+  profileStatus.textContent = 'Google 계정을 연결하는 중…';
+  try {
+    const {connectPlayerGoogleAccount} = await import('./profile-service.js');
+    renderServerProfile(await connectPlayerGoogleAccount());
+    profileStatus.textContent = 'Google 계정과 연결했습니다.';
+    refreshRankedAvailability();
+  } catch (error) {
+    socialConnectButton.disabled = false;
+    profileStatus.textContent = error?.message || 'Google 계정을 연결하지 못했습니다.';
+  }
+});
+themeOptions.addEventListener('click', event => {
+  const button = event.target.closest('[data-theme]');
+  if (!button) return;
+  profile.theme = button.dataset.theme;
+  try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
+  applyProfileTheme();
+  renderLocalProfile();
+});
+settingsForm.addEventListener('change', event => {
+  const input = event.target;
+  const value = input.type === 'checkbox' ? input.checked : input.value;
+  applySettings({...settings, [input.name]:value});
+  if (input.name === 'effects' && value) tone(620, .06);
+  if (input.name === 'vibration' && value) navigator.vibrate?.(18);
+});
+openControlsButton.addEventListener('click', () => {
+  closeAppPanel(settingsPanel);
+  openTutorial(false);
+});
+resetLocalDataButton.addEventListener('click', () => {
+  const confirmed = globalThis.confirm('기기에 저장된 연습 기록과 설정을 초기화할까요? 서버 랭킹 기록은 삭제되지 않습니다.');
+  if (!confirmed) return;
+  for (const key of [
+    'color-tetrix-profile-v1',
+    'color-bomb-settings-v1',
+    'color-tetrix-player-name',
+    'color-tetrix-tutorial-seen',
+    'color-bomb-run-snapshot-v1',
+    'color-bomb-pending-best-score-v1',
+  ]) {
+    try { localStorage.removeItem(key); } catch { /* private mode */ }
+  }
+  location.reload();
+});
+reducedMotionMedia.addEventListener?.('change', () => {
+  if (settings.reducedMotion === 'system') {
+    prefersReducedMotion = shouldReduceMotion();
+    draw();
+  }
+});
 rankingCloseButton.addEventListener('click', () => {
   closeHomeRanking();
   rankingButton.focus();
@@ -1494,7 +1750,7 @@ scoreForm.addEventListener('submit', async event => {
     }
     const result = gameMode === GAME_MODES.RANKED && rankedSession
       ? await import('./ranked-service.js').then(({submitRankedRun}) =>
-          submitRankedRun(rankedSession.runId, name, completedRunLedger))
+          submitRankedRun(rankedSession.runId, completedRunLedger))
       : await submitScore(name, score, level);
     rememberPlayerName(result.name);
     playerNameInput.value = result.name;
@@ -1527,6 +1783,11 @@ gameShell.addEventListener('contextmenu',e=>e.preventDefault());
 installCanvasInputGuards(canvas);
 window.addEventListener('keydown',e=>{
   if (!resumeDialog.hidden) return;
+  const openPanel = [profilePanel, settingsPanel].find(panel => !panel.hidden);
+  if (openPanel) {
+    if (e.key === 'Escape') { e.preventDefault(); closeAppPanel(openPanel); }
+    return;
+  }
   if (!tutorial.hidden) { if (e.key === 'Escape') { e.preventDefault(); closeTutorial(); } return; }
   const action=actionForKey(e);
   if(action) { e.preventDefault(); act(action); }
@@ -1605,10 +1866,11 @@ canvas.addEventListener('pointerdown',e=>{
   }
   unlockAudioSession();
   const rect=canvas.getBoundingClientRect();
+  const sensitivity = dragSensitivityScale(settings.dragSensitivity);
   gestureStart = {
     x:e.clientX, y:e.clientY, time:performance.now(), id:e.pointerId,
     axis:null, appliedX:0, appliedY:0, moved:false,
-    cellWidth:rect.width/COLS, cellHeight:rect.height/ROWS,
+    cellWidth:rect.width/COLS*sensitivity, cellHeight:rect.height/ROWS*sensitivity,
   };
   canvas.setPointerCapture(e.pointerId);
   e.preventDefault();
@@ -1655,8 +1917,12 @@ canvas.addEventListener('pointercancel',()=>{ gestureStart=null; });
 canvas.addEventListener('lostpointercapture',()=>{ gestureStart=null; });
 
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
-draw(); drawRacks(); updateStats(); updateReactor(); applyProfileTheme();
+syncSettingsForm(); draw(); drawRacks(); updateStats(); updateReactor(); applyProfileTheme(); renderLocalProfile();
 refreshRankedAvailability();
+import('./profile-service.js')
+  .then(({loadPlayerProfile}) => loadPlayerProfile())
+  .then(nextProfile => renderServerProfile(nextProfile))
+  .catch(() => {});
 const savedRun = readRunSnapshot();
 if (savedRun) restoreRun(savedRun);
 setupPwa();

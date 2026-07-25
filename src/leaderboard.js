@@ -1,4 +1,3 @@
-import { signInAnonymously } from 'firebase/auth';
 import {
   collection,
   doc,
@@ -10,14 +9,13 @@ import {
   runTransaction,
   serverTimestamp,
 } from 'firebase/firestore/lite';
-import { auth, db } from './firebase-client.js';
+import { db, ensureAuthUser } from './firebase-client.js';
 import { getKstSeason } from './game-session.js';
 import { RULE_VERSION } from './rule-version.js';
 const scores = collection(db, 'best_scores');
 const PENDING_SCORE_KEY = 'color-bomb-pending-best-score-v1';
 export const MAX_RECORDED_LEVEL = 999_999;
 export { RULE_VERSION } from './rule-version.js';
-let authPromise;
 
 export function normalizePlayerName(value) {
   return String(value ?? '')
@@ -78,14 +76,6 @@ function clearPendingScore(score, storage = globalThis.localStorage) {
   try { storage?.removeItem(PENDING_SCORE_KEY); } catch { /* private mode */ }
 }
 
-async function currentUser() {
-  if (auth.currentUser) return auth.currentUser;
-  authPromise ||= signInAnonymously(auth).then(result => result.user).finally(() => {
-    authPromise = undefined;
-  });
-  return authPromise;
-}
-
 async function writeBestScore(user, candidate) {
   const scoreRef = doc(scores, user.uid);
   let updated = false;
@@ -127,7 +117,7 @@ export async function submitScore(name, score, level) {
   });
 
   try {
-    const user = await currentUser();
+    const user = await ensureAuthUser();
     const updated = await writeBestScore(user, candidate);
     clearPendingScore(candidate.score);
     return { name: candidate.name, updated };
@@ -137,7 +127,7 @@ export async function submitScore(name, score, level) {
 }
 
 export async function loadTopScores(platform = 'desktop', season = getKstSeason()) {
-  const user = await currentUser();
+  const user = await ensureAuthUser();
   const seasonScores = collection(db, `season_rankings/${season}_${platform}/scores`);
   const [snapshot, mySnapshot] = await Promise.all([
     getDocs(query(

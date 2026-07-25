@@ -3,7 +3,7 @@
 ## 구현 상태
 
 코드 및 운영 설정 완료. Cloud Functions와 Firestore 규칙·인덱스를 배포했으며, 웹 App Check는 reCAPTCHA Enterprise와 7일 TTL로 등록하고 Firebase Authentication의 Google 제공업체를 활성화했다.
-랭킹 버튼에는 5단계 마이페이지 전에도 사용할 수 있는 최소 Google 계정 연결 팝업을 포함한다.
+랭킹은 Firebase 익명 UID로 즉시 참여하며, Google 계정 연결은 5단계 마이페이지에서 선택적으로 제공한다.
 
 - 서버 시드와 고정 버전 난수 생성기로 조각 순서를 결정한다.
 - 잠금된 조각의 순서, 홀드, 위치, 회전, 도달 가능성과 충돌을 서버에서 재현한다.

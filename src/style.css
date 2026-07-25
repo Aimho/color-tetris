@@ -156,6 +156,252 @@ h1 span { color: var(--orange); }
 }
 
 button:active { transform: scale(.96); }
+body.playing .home-only-action { display: none; }
+
+.app-panel {
+  position: fixed;
+  z-index: 24;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding:
+    max(18px, env(safe-area-inset-top))
+    max(18px, env(safe-area-inset-right))
+    max(28px, env(safe-area-inset-bottom))
+    max(18px, env(safe-area-inset-left));
+  background: var(--canvas);
+}
+
+.app-panel[hidden] { display: none; }
+.app-panel-shell { width: min(100%, 620px); margin: 0 auto; }
+.app-panel-head {
+  position: sticky;
+  z-index: 2;
+  top: calc(-1 * max(18px, env(safe-area-inset-top)));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 -4px 18px;
+  padding: max(18px, env(safe-area-inset-top)) 4px 12px;
+  background: color-mix(in oklab, var(--canvas) 96%, transparent);
+}
+.app-panel-head p, .section-heading p {
+  margin: 0 0 4px;
+  color: var(--acid);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .18em;
+}
+.app-panel-head h2 {
+  margin: 0;
+  font-family: "Black Han Sans", sans-serif;
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -.022em;
+}
+.panel-close {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--r-pill);
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+  font-size: 23px;
+}
+
+.profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.profile-mark {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+  border-radius: var(--r-md);
+  color: oklch(20% .04 112);
+  background: var(--acid);
+  box-shadow: 0 5px 0 oklch(52% .12 112);
+  font-family: "Black Han Sans", sans-serif;
+  font-size: 22px;
+}
+.profile-identity p { margin: 0 0 5px; color: var(--muted); font: 11px/1.3 system-ui, sans-serif; }
+.profile-identity strong { display: block; font-size: clamp(18px, 5vw, 24px); overflow-wrap: anywhere; }
+.profile-badges { display: flex; flex-wrap: wrap; gap: 6px; min-height: 0; margin-top: 9px; }
+.profile-badges:empty { display: none; }
+.profile-badges span { padding: 6px 8px; color: #101500; background: var(--acid); font-size: 8px; font-weight: 700; letter-spacing: .08em; }
+
+.nickname-form { margin-top: 12px; }
+.nickname-form > label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--acid);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+.nickname-form > div { display: grid; grid-template-columns: minmax(0, 1fr) 78px; gap: 7px; }
+.nickname-form input, .nickname-form button, .social-connect {
+  min-height: 46px;
+  border: 0;
+  border-radius: var(--r-sm);
+  font: 700 12px "Chivo Mono", monospace;
+}
+.nickname-form input {
+  min-width: 0;
+  padding: 0 12px;
+  outline: 1px solid rgba(255,255,255,.1);
+  color: var(--ink);
+  background: var(--surface-raised);
+}
+.nickname-form input:focus { outline: 2px solid var(--acid); outline-offset: 1px; }
+.nickname-form button { color: #101500; background: var(--acid); box-shadow: 0 4px 0 oklch(52% .12 112); }
+.nickname-form button:disabled { color: var(--muted); background: var(--surface); box-shadow: none; }
+.nickname-form small { display: block; min-height: 17px; margin-top: 7px; color: var(--muted); font: 11px/1.45 system-ui, sans-serif; }
+.social-connect {
+  width: 100%;
+  margin-top: 10px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.09);
+}
+.social-connect[disabled] { color: var(--acid); }
+
+.profile-section { margin-top: 25px; }
+.section-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 10px; }
+.section-heading h3 { margin: 0; font-size: 16px; letter-spacing: -.012em; }
+.season-platforms { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.season-platforms article {
+  min-height: 108px;
+  padding: 14px;
+  background: rgba(255,255,255,.035);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.055);
+}
+.season-platforms span { color: var(--acid); font-size: 9px; font-weight: 700; letter-spacing: .12em; }
+.season-platforms strong { display: block; margin: 17px 0 4px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.season-platforms small { color: var(--muted); font: 10px/1.3 system-ui, sans-serif; }
+.profile-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 0;
+  background: rgba(255,255,255,.035);
+}
+.profile-stats div { min-width: 0; padding: 13px 10px; box-shadow: inset -1px -1px rgba(255,255,255,.055); }
+.profile-stats dt { color: var(--muted); font: 10px/1.3 system-ui, sans-serif; }
+.profile-stats dd { margin: 8px 0 0; color: var(--ink); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.theme-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.theme-options button {
+  min-height: 48px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+  font-size: 10px;
+  font-weight: 700;
+}
+.theme-options button[aria-pressed="true"] { color: #101500; background: var(--acid); }
+.panel-status { min-height: 20px; margin: 18px 0 0; color: var(--acid); font: 11px/1.5 system-ui, sans-serif; }
+
+.settings-form { display: grid; gap: 24px; }
+.settings-form fieldset { margin: 0; padding: 0; border: 0; }
+.settings-form legend {
+  width: 100%;
+  margin-bottom: 8px;
+  color: var(--acid);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .14em;
+}
+.settings-form label {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 13px;
+  background: rgba(255,255,255,.035);
+  box-shadow: inset 0 -1px rgba(255,255,255,.055);
+}
+.settings-form label span { min-width: 0; }
+.settings-form label b { display: block; margin-bottom: 3px; font: 700 13px/1.3 system-ui, sans-serif; }
+.settings-form label small { display: block; color: var(--muted); font: 10px/1.35 system-ui, sans-serif; text-wrap: pretty; }
+.settings-form input[type="checkbox"] {
+  width: 46px;
+  height: 26px;
+  flex: 0 0 auto;
+  margin: 0;
+  appearance: none;
+  border-radius: var(--r-pill);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.1);
+}
+.settings-form input[type="checkbox"]::after {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 3px;
+  border-radius: 50%;
+  background: var(--muted);
+  transform: translateX(0);
+  transition: transform 120ms cubic-bezier(.2,0,0,1), background-color 120ms;
+}
+.settings-form input[type="checkbox"]:checked { background: color-mix(in oklab, var(--acid) 32%, var(--surface)); }
+.settings-form input[type="checkbox"]:checked::after { background: var(--acid); transform: translateX(20px); }
+.settings-form select {
+  min-width: 92px;
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: 0 8px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  font: 700 11px "Chivo Mono", monospace;
+}
+.settings-form input:focus-visible, .settings-form select:focus-visible {
+  outline: 2px solid var(--acid);
+  outline-offset: 2px;
+}
+.settings-links { display: grid; margin-top: 28px; }
+.settings-links a, .settings-links button {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  padding: 0 13px;
+  color: var(--ink);
+  background: transparent;
+  box-shadow: inset 0 -1px rgba(255,255,255,.07);
+  font: 12px "Chivo Mono", monospace;
+  text-align: left;
+  text-decoration: none;
+}
+.settings-links .danger-action { margin-top: 12px; color: var(--orange); background: rgba(255,101,66,.06); }
+.settings-version { margin: 22px 0 0; color: var(--muted); font-size: 9px; text-align: center; letter-spacing: .1em; }
+
+@media (min-width: 620px) {
+  .app-panel { padding-top: 30px; }
+  .app-panel-head { top: -30px; padding-top: 30px; }
+}
+
+@media (max-width: 460px) {
+  .profile-stats { grid-template-columns: repeat(2, 1fr); }
+  .theme-options { grid-template-columns: 1fr; }
+  .app-panel-head h2 { font-size: 27px; }
+}
+
+@media (any-pointer: fine) and (min-width: 620px) {
+  .mobile-setting { display: none !important; }
+}
 
 .score-strip {
   display: grid;

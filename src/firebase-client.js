@@ -1,6 +1,6 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { ReCaptchaEnterpriseProvider, initializeAppCheck } from 'firebase/app-check';
-import { getAuth } from 'firebase/auth';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore/lite';
 
 const config = {
@@ -15,6 +15,17 @@ const config = {
 export const app = getApps().length ? getApp() : initializeApp(config);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+let authPromise;
+
+export async function ensureAuthUser() {
+  await auth.authStateReady();
+  if (auth.currentUser) return auth.currentUser;
+  authPromise ||= signInAnonymously(auth).then(result => result.user).finally(() => {
+    authPromise = undefined;
+  });
+  return authPromise;
+}
+
 const appCheckSiteKey = import.meta.env?.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY;
 export const appCheck = appCheckSiteKey
   ? initializeAppCheck(app, {

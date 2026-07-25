@@ -9,6 +9,7 @@ import {
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   limit,
   query,
@@ -98,4 +99,16 @@ test('랭킹 실행권과 시즌 점수는 클라이언트가 직접 쓸 수 없
   await assertFails(setDoc(doc(db, 'season_rankings/2026-07_mobile/scores/ranked-player'), {
     uid:'ranked-player', score:999999,
   }));
+});
+
+test('프로필은 본인만 읽고 닉네임 예약과 프로필 쓰기는 서버만 수행한다', { skip: !emulatorEnabled }, async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'player_profiles/alice'), {nickname:'졸린폭탄007'});
+  });
+  const alice = environment.authenticatedContext('alice').firestore();
+  const bob = environment.authenticatedContext('bob').firestore();
+  await assertSucceeds(getDoc(doc(alice, 'player_profiles/alice')));
+  await assertFails(getDoc(doc(bob, 'player_profiles/alice')));
+  await assertFails(setDoc(doc(alice, 'player_profiles/alice'), {nickname:'바꾼폭탄001'}));
+  await assertFails(setDoc(doc(alice, 'nickname_reservations/abc'), {uid:'alice'}));
 });
