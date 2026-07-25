@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+
+test('랭킹 탭은 공통 버튼의 하단 강조 그림자를 상속하지 않는다', () => {
+  const tabRule = css.match(/\.ranking-platform-tabs button\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(tabRule, /box-shadow:\s*none\s*;/);
+});
+
+test('랭킹 목록은 로딩 여부와 무관하게 고정된 반응형 높이를 사용한다', () => {
+  const listRule = css.match(/\.home-ranking ol\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(listRule, /height:\s*clamp\(216px,\s*43dvh,\s*340px\)\s*;/);
+  assert.doesNotMatch(listRule, /max-height:/);
+});

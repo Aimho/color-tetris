@@ -1,7 +1,17 @@
 {
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs22"
+  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
+  },
+  "emulators": {
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 8085
+    }
   },
   "hosting": {
     "public": "dist",

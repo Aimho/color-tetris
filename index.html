@@ -66,9 +66,6 @@
             <p class="overlay-kicker">COLOR × CHAIN</p>
             <h2 id="overlayTitle">낙하가 끝나면<br />연쇄가 시작된다</h2>
             <p id="overlayCopy">같은 색 블록을 6칸 이상 연결하세요. 무너진 블록이 새로운 연쇄를 만듭니다.</p>
-            <div class="meta-panel" id="metaPanel">
-              <button id="themeButton" type="button">THEME · REACTOR</button>
-            </div>
             <section class="score-record" id="scoreRecord" hidden>
               <p>최고 점수를 기록할까요?</p>
               <form id="scoreForm">
@@ -89,6 +86,11 @@
                 </div>
                 <button class="ranking-close" id="rankingCloseButton" type="button" aria-label="랭킹 닫기">×</button>
               </div>
+              <div class="ranking-platform-tabs" role="tablist" aria-label="랭킹 플랫폼">
+                <button type="button" role="tab" data-ranking-platform="mobile">MOBILE</button>
+                <button type="button" role="tab" data-ranking-platform="desktop">DESKTOP</button>
+              </div>
+              <p class="ranking-my-best" id="rankingMyBest">MY BEST · —</p>
               <ol id="homeLeaderboardList"></ol>
             </section>
             <div class="end-actions">

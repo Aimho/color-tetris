@@ -37,6 +37,30 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /season_rankings/{bucket}/scores/{userId} {
+      allow get: if request.auth != null;
+      allow list: if request.auth != null
+        && request.query.limit != null
+        && request.query.limit <= 50;
+      allow create, update, delete: if false;
+    }
+
+    match /ranked_attempt_usage/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /ranked_runs/{runId} {
+      allow read, write: if false;
+    }
+
+    match /ranked_run_requests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /ranked_submissions/{runId} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

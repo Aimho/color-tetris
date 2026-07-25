@@ -1,9 +1,8 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously } from 'firebase/auth';
+import { signInAnonymously } from 'firebase/auth';
 import {
   collection,
   doc,
-  getFirestore,
+  getDoc,
   getDocs,
   limit,
   orderBy,
@@ -11,22 +10,13 @@ import {
   runTransaction,
   serverTimestamp,
 } from 'firebase/firestore/lite';
-
-const app = initializeApp({
-  apiKey: 'AIzaSyA_I9lW88ldisBstWrZ4rjCasSEgsC1QRg',
-  authDomain: 'color-tetrix-aimho.firebaseapp.com',
-  projectId: 'color-tetrix-aimho',
-  storageBucket: 'color-tetrix-aimho.firebasestorage.app',
-  messagingSenderId: '138832269891',
-  appId: '1:138832269891:web:f0236e6bc1a25972adbaf6',
-});
-
-const auth = getAuth(app);
-const db = getFirestore(app);
+import { auth, db } from './firebase-client.js';
+import { getKstSeason } from './game-session.js';
+import { RULE_VERSION } from './rule-version.js';
 const scores = collection(db, 'best_scores');
 const PENDING_SCORE_KEY = 'color-bomb-pending-best-score-v1';
 export const MAX_RECORDED_LEVEL = 999_999;
-export const RULE_VERSION = 2;
+export { RULE_VERSION } from './rule-version.js';
 let authPromise;
 
 export function normalizePlayerName(value) {
@@ -146,9 +136,23 @@ export async function submitScore(name, score, level) {
   }
 }
 
-export async function loadTopScores() {
+export async function loadTopScores(platform = 'desktop', season = getKstSeason()) {
   const user = await currentUser();
-  await flushPendingScore(user);
-  const snapshot = await getDocs(query(scores, orderBy('score', 'desc'), limit(50)));
-  return snapshot.docs.map(scoreDoc => scoreDoc.data());
+  const seasonScores = collection(db, `season_rankings/${season}_${platform}/scores`);
+  const [snapshot, mySnapshot] = await Promise.all([
+    getDocs(query(
+      seasonScores,
+      orderBy('score', 'desc'),
+      orderBy('level', 'desc'),
+      orderBy('achievedAt', 'asc'),
+      limit(50),
+    )),
+    getDoc(doc(seasonScores, user.uid)),
+  ]);
+  return {
+    entries:snapshot.docs.map(scoreDoc => ({playerId:scoreDoc.id, ...scoreDoc.data()})),
+    myBest:mySnapshot.exists() ? {playerId:mySnapshot.id, ...mySnapshot.data()} : null,
+    season,
+    platform,
+  };
 }

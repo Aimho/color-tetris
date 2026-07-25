@@ -1,4 +1,5 @@
 import { getKstDay, getKstSeason } from './game-session.js';
+import { RULE_VERSION } from './rule-version.js';
 
 export const DAILY_RANKED_ATTEMPTS = 3;
 
@@ -31,13 +32,19 @@ export function createScoreLedger({
   maxChain,
   reactorCount,
   multiplierCells,
-  ruleVersion,
+  ruleVersion = RULE_VERSION,
+  piecesPlaced = 0,
+  dropPoints = 0,
+  clearSteps = [],
+  placementLog = [],
+  randomVersion = null,
+  season = null,
   date = new Date(),
 }) {
   return {
     mode,
     platform,
-    season:getKstSeason(date),
+    season:season || getKstSeason(date),
     score:Math.max(0, Math.round(score)),
     level:Math.max(1, Math.round(level)),
     playTimeMs:Math.max(0, Math.round(playTimeMs)),
@@ -47,6 +54,11 @@ export function createScoreLedger({
     reactorCount:Math.max(0, Math.round(reactorCount)),
     multiplierCells:Math.max(0, Math.round(multiplierCells)),
     ruleVersion,
+    piecesPlaced:Math.max(0, Math.round(piecesPlaced)),
+    dropPoints:Math.max(0, Math.round(dropPoints)),
+    clearSteps:clearSteps.map(step => ({...step})),
+    placementLog:placementLog.map(entry => ({...entry})),
+    randomVersion:Number.isInteger(randomVersion) ? randomVersion : null,
   };
 }
 

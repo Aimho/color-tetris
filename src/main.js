@@ -9,6 +9,8 @@ import { attachQueuedSpecial, createSpecialRewardQueue, earnSpecialRewards, reso
 import { chargeReactor, finishRun, readProfile, unlockedThemes } from './progression.js';
 import { chooseMultiplierDrop, getChainPower, getClearSpecialMultiplier, getMultiplierRewards } from './reactor.js';
 import { GAME_MODES, clearRunSnapshot, detectPlatform, readRunSnapshot, saveRunSnapshot } from './game-session.js';
+import { createScoreLedger } from './ranking-model.js';
+import { createRankedRandom } from '../functions/shared/ranked-random.js';
 import { setupPwa } from './pwa.js';
 
 const COLS = 10;
@@ -59,6 +61,8 @@ const homeRanking = document.querySelector('#homeRanking');
 const homeLeaderboardList = document.querySelector('#homeLeaderboardList');
 const rankingButton = document.querySelector('#rankingButton');
 const rankingCloseButton = document.querySelector('#rankingCloseButton');
+const rankingMyBest = document.querySelector('#rankingMyBest');
+const rankingPlatformTabs = [...document.querySelectorAll('[data-ranking-platform]')];
 const buildVersion = document.querySelector('#buildVersion');
 const shareButton = document.querySelector('#shareButton');
 const rankedStartButton = document.querySelector('#rankedStartButton');
@@ -66,7 +70,6 @@ const runModeStatus = document.querySelector('#runModeStatus');
 const reactorStatus = document.querySelector('#reactorStatus');
 const reactorValue = document.querySelector('#reactorValue');
 const reactorInstruction = document.querySelector('#reactorInstruction');
-const themeButton = document.querySelector('#themeButton');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -95,12 +98,34 @@ let runPlatform = detectPlatform({
 });
 let lastStableRunState = null;
 let pendingStartMode = GAME_MODES.PRACTICE;
+let runMetrics = createRunMetrics();
+let completedRunLedger = null;
+let rankedSession = null;
+let pendingRankedSession = null;
+let rankedRandomCalls = 0;
+let pieceSerialCounter = 0;
+let rankingPlatform = runPlatform;
 
 buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 
 function getLeaderboardApi() {
   leaderboardApiPromise ||= import('./leaderboard.js');
   return leaderboardApiPromise;
+}
+
+async function refreshRankedAvailability() {
+  try {
+    const { rankedServiceStatus } = await import('./ranked-service.js');
+    const status = await rankedServiceStatus();
+    rankedStartButton.disabled = !status.ready;
+    rankedStartButton.innerHTML = status.ready
+      ? '랭킹 도전 <span>◆</span>'
+      : '랭킹 준비 중 <span>◆</span>';
+    rankedStartButton.title = status.reason;
+  } catch {
+    rankedStartButton.disabled = true;
+    rankedStartButton.title = '랭킹 서버에 연결할 수 없습니다.';
+  }
 }
 
 function shuffled(values) {
@@ -130,6 +155,7 @@ function makePiece() {
   piecesSinceMono = result.isMono ? 0 : piecesSinceMono + 1;
   const colors = result.colors;
   return {
+    serial:pieceSerialCounter++,
     type,
     cells: SHAPES[type].map((p, i) => ({
       x:p[0], y:p[1], color:colors[i],
@@ -157,17 +183,29 @@ function spawn() {
   else lastStableRunState = structuredClone(snapshotRunState());
 }
 
-function reset(mode = gameMode) {
+function reset(mode = gameMode, session = pendingRankedSession) {
   stopLoop();
   runId++;
   gameMode = mode;
-  randomSource = Math.random;
+  runMetrics = createRunMetrics();
+  completedRunLedger = null;
+  rankedSession = mode === GAME_MODES.RANKED ? session : null;
+  rankedRandomCalls = 0;
+  const seededRandom = rankedSession ? createRankedRandom(rankedSession.seed) : null;
+  randomSource = seededRandom
+    ? () => {
+        rankedRandomCalls++;
+        return seededRandom();
+      }
+    : Math.random;
+  pendingRankedSession = null;
   document.body.classList.add('playing');
   board = Array.from({length: ROWS}, () => Array(COLS).fill(null));
   eventBoard = Array.from({length: ROWS}, () => Array(COLS).fill(null));
   queue = []; hold = null; holdUsed = false; score = 0; level = 1; lines = 0;
   shapeBag = []; colorBag = []; resolving = false; running = true; paused = false; piecesSpawned = 0;
   piecesSinceMono = 0; particles = []; arrowBeams = []; bombBursts = []; multiplierBursts = []; multiplierDrops = []; clearingCells = new Set();
+  pieceSerialCounter = 0;
   specialRewards = createSpecialRewardQueue();
   reactorCharge = 0; reactorPower = 0; maxChain = 0;
   refillQueue(); spawn(); updateStats();
@@ -184,6 +222,41 @@ function reset(mode = gameMode) {
   startMusic();
   updateReactor();
   startLoop();
+}
+
+function createRunMetrics() {
+  return {
+    playTimeMs:0,
+    piecesPlaced:0,
+    dropPoints:0,
+    clearSteps:[],
+    reactorCount:0,
+    multiplierCells:0,
+    placementLog:[],
+  };
+}
+
+function createCurrentScoreLedger() {
+  const directClears = runMetrics.clearSteps.reduce((total, step) => total + step.directCells, 0);
+  const removedCells = runMetrics.clearSteps.reduce((total, step) => total + step.removedCells, 0);
+  return createScoreLedger({
+    mode:gameMode,
+    platform:runPlatform,
+    score,
+    level,
+    playTimeMs:runMetrics.playTimeMs,
+    piecesPlaced:runMetrics.piecesPlaced,
+    dropPoints:runMetrics.dropPoints,
+    clearSteps:runMetrics.clearSteps,
+    placementLog:runMetrics.placementLog,
+    randomVersion:rankedSession?.randomVersion ?? null,
+    season:rankedSession?.season ?? null,
+    directClears,
+    specialClears:removedCells - directClears,
+    maxChain,
+    reactorCount:runMetrics.reactorCount,
+    multiplierCells:runMetrics.multiplierCells,
+  });
 }
 
 function snapshotRunState() {
@@ -209,6 +282,10 @@ function snapshotRunState() {
     maxChain,
     lockTimer,
     lockResets,
+    runMetrics,
+    rankedSession,
+    rankedRandomCalls,
+    pieceSerialCounter,
   };
 }
 
@@ -243,10 +320,28 @@ function restoreRun(snapshot) {
     maxChain,
     lockTimer,
     lockResets,
+    runMetrics,
+    rankedSession,
+    rankedRandomCalls,
+    pieceSerialCounter,
   } = state);
-  // Local saves are never authoritative for ranked play. Server-issued run
-  // verification will re-enable ranked restoration in the server phase.
-  gameMode = GAME_MODES.PRACTICE;
+  runMetrics ||= createRunMetrics();
+  const rankedRestorable = state.mode === GAME_MODES.RANKED
+    && rankedSession?.seed
+    && rankedSession?.expiresAt > Date.now();
+  gameMode = rankedRestorable ? GAME_MODES.RANKED : GAME_MODES.PRACTICE;
+  if (rankedRestorable) {
+    const seededRandom = createRankedRandom(rankedSession.seed);
+    for (let index = 0; index < rankedRandomCalls; index++) seededRandom();
+    randomSource = () => {
+      rankedRandomCalls++;
+      return seededRandom();
+    };
+  } else {
+    rankedSession = null;
+    rankedRandomCalls = 0;
+    randomSource = Math.random;
+  }
   runPlatform = state.platform;
   resolving = false;
   running = true;
@@ -313,7 +408,10 @@ function hardDrop() {
   if (!running || paused || resolving) return;
   let distance = 0;
   while (move(0, 1)) distance++;
-  score += distance * 2;
+  if (gameMode !== GAME_MODES.RANKED) {
+    score += distance * 2;
+    runMetrics.dropPoints += distance * 2;
+  }
   updateStats();
   boardFrame.animate([
     {transform:'scaleY(1)'}, {transform:'scaleY(.985)'}, {transform:'scaleY(1)'}
@@ -324,11 +422,22 @@ function hardDrop() {
 function lock() {
   gestureStart = null;
   const cells = cellsOf(active);
+  if (gameMode === GAME_MODES.RANKED) {
+    runMetrics.placementLog.push({
+      pieceSerial:active.serial,
+      x:active.x,
+      y:active.y,
+      rotation:active.rotation || 0,
+      usedHold:holdUsed,
+      terminal:cells.some(cell => cell.y < 0),
+    });
+  }
   if (cells.some(c => c.y < 0)) { endGame(); return; }
   for (const c of cells) {
     board[c.y][c.x] = c.color;
     eventBoard[c.y][c.x] = c.event;
   }
+  runMetrics.piecesPlaced++;
   lockTimer = 0;
   tone(150, .05);
   resolveBoard();
@@ -379,6 +488,13 @@ async function resolveBoard() {
     }
     clearingCells = new Set();
     const earnedScore = getClearScore(removed.size, chain, specialMultiplier);
+    runMetrics.clearSteps.push({
+      removedCells:removed.size,
+      directCells:matched.size,
+      chain,
+      scoreMultiplier:specialMultiplier,
+      multiplierCells:multipliers.length,
+    });
     score += earnedScore;
     lines += removed.size;
     reactorPower += getChainPower(chain);
@@ -404,6 +520,7 @@ async function resolveBoard() {
 
 async function deployReactorRewards(resolvingRun) {
   const rewards = getMultiplierRewards(reactorPower);
+  runMetrics.reactorCount++;
   reactorCharge = 0;
   reactorPower = 0;
   gestureStart = null;
@@ -417,6 +534,7 @@ async function deployReactorRewards(resolvingRun) {
     callout.classList.add('pop');
     board[target.y][target.x] = target.color;
     eventBoard[target.y][target.x] = event;
+    runMetrics.multiplierCells++;
     const duration = prefersReducedMotion ? 100 : 480;
     const dropEffect = {...target, event, start:performance.now(), duration};
     multiplierDrops = [dropEffect];
@@ -452,7 +570,16 @@ function applyGravity() {
 
 function holdPiece() {
   if (!running || paused || resolving || holdUsed) return;
-  const current = {...active, x:SPAWN_X, y:-1};
+  let current = {...active, x:SPAWN_X, y:-1};
+  while (current.rotation) {
+    current = {
+      ...current,
+      cells:current.type === 'O'
+        ? rotateSquareCells(current.cells)
+        : current.cells.map(cell => rotateCellClockwise(cell)),
+      rotation:(current.rotation + 1) % 4,
+    };
+  }
   if (hold) { active = hold; active.x=SPAWN_X; active.y=-1; hold = current; }
   else { hold = current; active = queue.shift(); refillQueue(); }
   holdUsed = true; lockResets = 0; drawRacks(); tone(360,.04);
@@ -885,20 +1012,11 @@ function updateReactor() {
   reactorStatus.setAttribute('aria-label', `리액터 충전 ${value}퍼센트, 체인 파워 ${reactorPower}`);
 }
 
-function renderMeta() {
+function applyProfileTheme() {
   const themes = unlockedThemes(profile);
   if (!themes.some(theme => theme.id === profile.theme)) profile.theme = 'reactor';
   const theme = themes.find(item => item.id === profile.theme) || themes[0];
-  themeButton.textContent = `THEME · ${theme.label}`;
   document.body.dataset.theme = theme.id;
-}
-
-function cycleTheme() {
-  const themes = unlockedThemes(profile);
-  const index = themes.findIndex(theme => theme.id === profile.theme);
-  profile.theme = themes[(index + 1) % themes.length].id;
-  try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
-  renderMeta();
 }
 
 function showChain(n, intensity = 'clear', points = 0) {
@@ -946,7 +1064,7 @@ function closeTutorial() {
   tutorial.hidden = true;
   gameShell.inert = false;
   rememberTutorial();
-  if (startsGame) reset(pendingStartMode);
+  if (startsGame) reset(pendingStartMode, pendingRankedSession);
   else if (running) { paused = false; lastTime = performance.now(); startLoop(); startMusic(); }
   tutorialStartsGame = false;
   if (!startsGame) tutorialOpener?.focus?.();
@@ -964,6 +1082,7 @@ function endGame() {
   running=false; resolving=false;
   stopLoop();
   clearRunSnapshot();
+  completedRunLedger = createCurrentScoreLedger();
   updateReactor();
   stopMusic(.32);
   overlayTitle.innerHTML='연쇄가<br />멈췄습니다';
@@ -978,7 +1097,7 @@ function endGame() {
   if (gameMode === GAME_MODES.RANKED) refreshLeaderboard();
   profile = finishRun(profile, { level, clears: lines, maxChain });
   try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
-  renderMeta();
+  applyProfileTheme();
   tone(90,.22);
 }
 
@@ -998,6 +1117,7 @@ function loop(time) {
   if (!running) { draw(); return; }
   if (paused) return;
   const dt=time-lastTime; lastTime=time; dropTimer+=dt;
+  runMetrics.playTimeMs += Math.min(dt, 1000);
   updateParticles(Math.min(dt, 32));
   if (!resolving) {
     if (collides({...active, y:active.y+1})) {
@@ -1212,10 +1332,21 @@ function showLeaderboardSkeleton(targetList) {
 
 async function refreshLeaderboard(targetList = leaderboardList) {
   leaderboardTitle.textContent = 'TOP 50';
+  rankingPlatformTabs.forEach(tab => {
+    const selected = tab.dataset.rankingPlatform === rankingPlatform;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  });
   showLeaderboardSkeleton(targetList);
   try {
     const { loadTopScores } = await getLeaderboardApi();
-    const entries = await loadTopScores();
+    const { entries, myBest, season } = await loadTopScores(rankingPlatform);
+    if (targetList === homeLeaderboardList) {
+      rankingMyBest.textContent = myBest
+        ? `MY BEST · ${myBest.score.toLocaleString()} · LV ${myBest.level}`
+        : 'MY BEST · 아직 기록 없음';
+      rankingMyBest.dataset.season = season;
+    }
     targetList.replaceChildren(...entries.map(entry => {
       const item = document.createElement('li');
       const name = document.createElement('strong');
@@ -1238,6 +1369,7 @@ async function refreshLeaderboard(targetList = leaderboardList) {
 }
 
 function openHomeRanking() {
+  rankingPlatform = runPlatform;
   overlay.classList.add('ranking-view');
   homeRanking.hidden = false;
   rankingCloseButton.focus();
@@ -1281,30 +1413,52 @@ function showShareCopied() {
 
 function softDrop() {
   if (!move(0,1,true)) return false;
-  score += 1; updateStats();
+  if (gameMode !== GAME_MODES.RANKED) {
+    score += 1;
+    runMetrics.dropPoints++;
+  }
+  updateStats();
   return true;
 }
 
 function act(action) {
   if (paused) return false;
-  if(action==='left') return move(-1,0,true);
-  if(action==='right') return move(1,0,true);
-  if(action==='rotate') { rotate(); return true; }
-  if(action==='drop') { hardDrop(); return true; }
-  if(action==='down') return softDrop();
-  if(action==='hold') { holdPiece(); return true; }
-  return false;
+  let applied = false;
+  if(action==='left') applied = move(-1,0,true);
+  else if(action==='right') applied = move(1,0,true);
+  else if(action==='rotate') { rotate(); applied = true; }
+  else if(action==='drop') { hardDrop(); applied = true; }
+  else if(action==='down') applied = softDrop();
+  else if(action==='hold') { holdPiece(); applied = true; }
+  return applied;
 }
 
-function startSelectedMode(mode) {
+async function startSelectedMode(mode) {
   unlockAudioSession();
   closeHomeRanking();
   rankingButton.hidden = true;
   rankedStartButton.hidden = true;
   pendingStartMode = mode;
+  pendingRankedSession = null;
+  if (mode === GAME_MODES.RANKED) {
+    try {
+      rankedStartButton.disabled = true;
+      rankedStartButton.innerHTML = '연결 중… <span>◆</span>';
+      const { startRankedRun } = await import('./ranked-service.js');
+      pendingRankedSession = await startRankedRun();
+      runPlatform = pendingRankedSession.platform;
+    } catch (error) {
+      rankingButton.hidden = false;
+      rankedStartButton.hidden = false;
+      rankedStartButton.disabled = false;
+      rankedStartButton.innerHTML = '랭킹 도전 <span>◆</span>';
+      overlayCopy.textContent = error?.message || '랭킹 서버에 연결하지 못했습니다. 연습 모드는 계속 이용할 수 있습니다.';
+      return;
+    }
+  }
   document.body.classList.add('playing');
   if (!tutorialSeen()) openTutorial(true);
-  else reset(mode);
+  else reset(mode, pendingRankedSession);
 }
 
 document.querySelector('#startButton').addEventListener('click', () => startSelectedMode(
@@ -1316,7 +1470,14 @@ rankingCloseButton.addEventListener('click', () => {
   closeHomeRanking();
   rankingButton.focus();
 });
-themeButton.addEventListener('click', cycleTheme);
+rankingPlatformTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    const platform = tab.dataset.rankingPlatform;
+    if (platform === rankingPlatform) return;
+    rankingPlatform = platform;
+    refreshLeaderboard(homeLeaderboardList);
+  });
+});
 scoreForm.addEventListener('submit', async event => {
   event.preventDefault();
   if (scoreSubmitted) return;
@@ -1331,11 +1492,16 @@ scoreForm.addEventListener('submit', async event => {
       playerNameInput.focus();
       return;
     }
-    const result = await submitScore(name, score, level);
+    const result = gameMode === GAME_MODES.RANKED && rankedSession
+      ? await import('./ranked-service.js').then(({submitRankedRun}) =>
+          submitRankedRun(rankedSession.runId, name, completedRunLedger))
+      : await submitScore(name, score, level);
     rememberPlayerName(result.name);
     playerNameInput.value = result.name;
     scoreSubmitted = true;
-    scoreStatus.textContent = result.updated ? '새로운 최고 점수를 기록했습니다.' : '기존 최고 점수가 더 높습니다.';
+    scoreStatus.textContent = result.queued
+      ? '기록을 안전하게 검증하고 있습니다.'
+      : result.updated ? '새로운 최고 점수를 기록했습니다.' : '기존 최고 점수가 더 높습니다.';
     await refreshLeaderboard();
   } catch (error) {
     scoreStatus.textContent = error?.message || '점수를 기록하지 못했습니다. 잠시 후 다시 시도해주세요.';
@@ -1456,17 +1622,17 @@ canvas.addEventListener('pointermove',e=>{
   if (gestureStart.axis==='x') {
     const target=dragStepTarget(dx,gestureStart.cellWidth);
     while (gestureStart.appliedX < target) {
-      if (!move(1,0,true)) break;
+      if (!act('right')) break;
       gestureStart.appliedX++; gestureStart.moved=true;
     }
     while (gestureStart.appliedX > target) {
-      if (!move(-1,0,true)) break;
+      if (!act('left')) break;
       gestureStart.appliedX--; gestureStart.moved=true;
     }
   } else if (gestureStart.axis==='y' && dy>0) {
     const target=Math.max(0,dragStepTarget(dy,gestureStart.cellHeight));
     while (gestureStart.appliedY < target) {
-      if (!softDrop()) break;
+      if (!act('down')) break;
       gestureStart.appliedY++; gestureStart.moved=true;
     }
   }
@@ -1489,7 +1655,8 @@ canvas.addEventListener('pointercancel',()=>{ gestureStart=null; });
 canvas.addEventListener('lostpointercapture',()=>{ gestureStart=null; });
 
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
-draw(); drawRacks(); updateStats(); updateReactor(); renderMeta();
+draw(); drawRacks(); updateStats(); updateReactor(); applyProfileTheme();
+refreshRankedAvailability();
 const savedRun = readRunSnapshot();
 if (savedRun) restoreRun(savedRun);
 setupPwa();

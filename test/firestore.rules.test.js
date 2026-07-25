@@ -80,3 +80,22 @@ test('현재 규칙과 다른 버전으로 점수를 위장할 수 없다', { sk
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   }));
 });
+
+test('랭킹 실행권과 시즌 점수는 클라이언트가 직접 쓸 수 없다', { skip: !emulatorEnabled }, async () => {
+  const db = environment.authenticatedContext('ranked-player').firestore();
+  await assertFails(setDoc(doc(db, 'ranked_runs/fake-run'), {
+    uid:'ranked-player', status:'active',
+  }));
+  await assertFails(setDoc(doc(db, 'ranked_attempt_usage/ranked-player_2026-07-25'), {
+    uid:'ranked-player', used:0,
+  }));
+  await assertFails(setDoc(doc(db, 'ranked_run_requests/ranked-player_request'), {
+    runId:'fake-run',
+  }));
+  await assertFails(setDoc(doc(db, 'ranked_submissions/fake-run'), {
+    uid:'ranked-player', score:999999,
+  }));
+  await assertFails(setDoc(doc(db, 'season_rankings/2026-07_mobile/scores/ranked-player'), {
+    uid:'ranked-player', score:999999,
+  }));
+});
