@@ -8,7 +8,15 @@ import { canResetLock, getClearIntensity, getClearScore, getDropInterval, getLev
 import { attachQueuedSpecial, createSpecialRewardQueue, earnSpecialRewards, resolveSpecialEffects } from './events.js';
 import { chargeReactor, finishRun, readProfile, unlockedThemes } from './progression.js';
 import { chooseMultiplierDrop, getChainPower, getClearSpecialMultiplier, getMultiplierRewards } from './reactor.js';
-import { GAME_MODES, clearRunSnapshot, detectPlatform, readRunSnapshot, saveRunSnapshot } from './game-session.js';
+import {
+  GAME_MODES,
+  clearRunSnapshot,
+  detectPlatform,
+  rankedPlatformForRuntime,
+  readRunSnapshot,
+  saveRunSnapshot,
+} from './game-session.js';
+import { createOperationGuard } from './operation-guard.js';
 import { createScoreLedger } from './ranking-model.js';
 import { createRankedRandom } from '../functions/shared/ranked-random.js';
 import { setupPwa } from './pwa.js';
@@ -121,6 +129,9 @@ let runPlatform = detectPlatform({
   coarsePointer:isTouchDevice,
   touchPoints:navigator.maxTouchPoints,
 });
+const rankedRuntimePlatform = rankedPlatformForRuntime({
+  native:globalThis.Capacitor?.isNativePlatform?.() === true,
+});
 let lastStableRunState = null;
 let pendingStartMode = GAME_MODES.PRACTICE;
 let runMetrics = createRunMetrics();
@@ -129,11 +140,12 @@ let rankedSession = null;
 let pendingRankedSession = null;
 let rankedRandomCalls = 0;
 let pieceSerialCounter = 0;
-let rankingPlatform = runPlatform;
+let rankingPlatform = rankedRuntimePlatform;
 let settings = readSettings();
 let prefersReducedMotion = shouldReduceMotion();
 let serverProfile = null;
 let currentGameResult = null;
+const rankedStartGuard = createOperationGuard();
 
 buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 settingsVersion.textContent = `COLOR BOMB · VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
@@ -269,6 +281,8 @@ function closeAppPanel(panel) {
 }
 
 async function refreshRankedAvailability() {
+  rankedStartButton.disabled = true;
+  rankedStartButton.innerHTML = '로딩 중… <span>◆</span>';
   try {
     const { rankedServiceStatus } = await import('./ranked-service.js');
     const status = await rankedServiceStatus();
@@ -1594,7 +1608,7 @@ async function refreshLeaderboard(targetList = homeLeaderboardList) {
 }
 
 function openHomeRanking() {
-  rankingPlatform = runPlatform;
+  rankingPlatform = rankedRuntimePlatform;
   overlay.classList.add('ranking-view');
   homeRanking.hidden = false;
   rankingCloseButton.focus();
@@ -1660,6 +1674,7 @@ function act(action) {
 }
 
 async function startSelectedMode(mode) {
+  const operation = rankedStartGuard.begin();
   unlockAudioSession();
   closeHomeRanking();
   rankingButton.hidden = true;
@@ -1671,9 +1686,12 @@ async function startSelectedMode(mode) {
       rankedStartButton.disabled = true;
       rankedStartButton.innerHTML = '연결 중… <span>◆</span>';
       const { startRankedRun } = await import('./ranked-service.js');
-      pendingRankedSession = await startRankedRun();
+      const session = await startRankedRun();
+      if (!rankedStartGuard.isCurrent(operation)) return;
+      pendingRankedSession = session;
       runPlatform = pendingRankedSession.platform;
     } catch (error) {
+      if (!rankedStartGuard.isCurrent(operation)) return;
       rankingButton.hidden = false;
       rankedStartButton.hidden = false;
       rankedStartButton.disabled = false;
@@ -1847,6 +1865,7 @@ function continueAfterInterruption() {
 }
 
 function discardSavedRun() {
+  rankedStartGuard.cancel();
   clearRunSnapshot();
   stopLoop();
   runId++;
@@ -1870,6 +1889,7 @@ function discardSavedRun() {
 }
 
 function returnHome() {
+  rankedStartGuard.cancel();
   stopLoop();
   runId++;
   running = false;

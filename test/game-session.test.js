@@ -8,6 +8,7 @@ import {
   getKstDay,
   getKstSeason,
   isValidRunSnapshot,
+  rankedPlatformForRuntime,
   readRunSnapshot,
   saveRunSnapshot,
 } from '../src/game-session.js';
@@ -58,6 +59,11 @@ test('네이티브·터치 우선 환경은 모바일 플랫폼으로 고정한�
   assert.equal(detectPlatform({coarsePointer:true}), PLATFORMS.MOBILE);
   assert.equal(detectPlatform({touchPoints:1}), PLATFORMS.MOBILE);
   assert.equal(detectPlatform({}), PLATFORMS.DESKTOP);
+});
+
+test('랭킹 버킷은 검증 가능한 네이티브 앱만 모바일로 분류한다', () => {
+  assert.equal(rankedPlatformForRuntime({native:true}), PLATFORMS.MOBILE);
+  assert.equal(rankedPlatformForRuntime({native:false}), PLATFORMS.DESKTOP);
 });
 
 test('게임 스냅샷을 저장하고 7일 안에 복구한다', () => {
