@@ -2,7 +2,6 @@ import { replayRankedPlacements } from './shared/ranked-replay.js';
 import { RULE_VERSION } from './shared/ranked-protocol.js';
 
 export { RULE_VERSION } from './shared/ranked-protocol.js';
-export const DAILY_ATTEMPT_LIMIT = null;
 export const RUN_TTL_MS = 24 * 60 * 60 * 1000;
 const CHAIN_MULTIPLIERS = [1, 1.8, 3, 4.8, 7];
 const SCORE_MULTIPLIERS = new Set([1, 2, 3, 4, 6]);
@@ -70,7 +69,9 @@ export function validateLedger(ledger, run, now = Date.now()) {
   const level = 1 + Math.floor(removedCells / 15);
   if (ledger.score !== score || ledger.level !== level) throw new Error('score-mismatch');
   if (ledger.maxChain !== maxChain || ledger.directClears !== directClears) throw new Error('stats-mismatch');
-  if (ledger.specialClears !== removedCells - directClears || ledger.multiplierCells !== multiplierCells) {
+  if (!integer(ledger.multiplierCells, 0, ledger.piecesPlaced * 3)
+    || ledger.specialClears !== removedCells - directClears
+    || multiplierCells > ledger.multiplierCells) {
     throw new Error('stats-mismatch');
   }
   return {...ledger, score, level, removedCells};

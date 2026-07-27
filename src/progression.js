@@ -28,7 +28,7 @@ export function defaultProfile() {
     reactorUses:0,
     bestChain:0,
     bestChainPower:0,
-    theme:'reactor',
+    theme:'default',
     lastSyncedAt:0,
   };
 }
@@ -62,10 +62,14 @@ export function finishRun(profile, {
 
 export function unlockedThemes(profile) {
   return [
-    { id: 'reactor', label: 'REACTOR', unlocked: true },
-    { id: 'ember', label: 'EMBER', unlocked: profile.totalClears >= 500 },
-    { id: 'aurora', label: 'AURORA', unlocked: profile.totalClears >= 2000 },
-  ].filter(theme => theme.unlocked);
+    { id: 'default', label: '기본', caption: 'COLOR BOMB 오리지널' },
+    { id: 'pixel', label: '픽셀', caption: '8-BIT 아케이드' },
+    { id: 'neon', label: '네온', caption: '에너지 글로우' },
+  ];
+}
+
+export function normalizeTheme(theme) {
+  return ['default', 'pixel', 'neon'].includes(theme) ? theme : 'default';
 }
 
 export function chargeReactor(current, removedCount, chain, level = 1) {

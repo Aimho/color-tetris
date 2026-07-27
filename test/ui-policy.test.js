@@ -52,7 +52,7 @@ test('랭킹 도전을 누르면 서버 응답을 기다리는 동안 이전 보
   const startSelectedMode = main.match(/async function startSelectedMode\(mode\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
   const enterGameIndex = startSelectedMode.indexOf("document.body.classList.add('playing')");
   const showLoadingIndex = startSelectedMode.indexOf('setRankedLoading(true)');
-  const awaitRankedIndex = startSelectedMode.indexOf("await import('./ranked-service.js')");
+  const awaitRankedIndex = startSelectedMode.indexOf("import('./ranked-service.js')");
 
   assert.match(html, /id="rankedLoading"[^>]*role="status"[^>]*aria-live="polite"[^>]*hidden/);
   assert.notEqual(enterGameIndex, -1);
@@ -60,9 +60,16 @@ test('랭킹 도전을 누르면 서버 응답을 기다리는 동안 이전 보
   assert.notEqual(awaitRankedIndex, -1);
   assert.ok(enterGameIndex < awaitRankedIndex);
   assert.ok(showLoadingIndex < awaitRankedIndex);
+  assert.match(startSelectedMode, /Promise\.all\(\[\s*import\('\.\/ranked-service\.js'\),\s*getLeaderboardApi\(\),\s*\]\)/);
   assert.match(startSelectedMode, /startRankedRun\(\{platform:inputPlatform\}\)/);
   assert.match(main, /function reset[\s\S]*?setRankedLoading\(false\)/);
   assert.match(main, /function returnHome[\s\S]*?setRankedLoading\(false\)/);
+});
+
+test('배포 중 사라진 동적 청크는 최신 앱으로 새로고침한다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /addEventListener\('vite:preloadError', event => \{/);
+  assert.match(main, /event\.preventDefault\(\);\s*location\.reload\(\);/);
 });
 
 test('랭킹 기록의 이름은 클라이언트 입력이 아닌 예약 프로필을 사용한다', async () => {
@@ -81,10 +88,43 @@ test('게임 방법은 홈에 있고 게임 중단 팝업에는 계속하기와 
     readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
   ]);
   assert.match(html, /id="pauseButton"/);
-  assert.match(html, /class="home-only-action" id="homeHelpButton"/);
+  assert.match(html, /class="icon-button home-only-action" id="homeHelpButton"[^>]*aria-label="게임 방법 열기"/);
+  assert.ok(html.indexOf('id="homeHelpButton"') < html.indexOf('id="profileButton"'));
+  assert.ok(html.indexOf('id="profileButton"') < html.indexOf('id="settingsButton"'));
   assert.match(main, /homeHelpButton\.addEventListener\('click', \(\) => openTutorial\(false\)\)/);
   assert.doesNotMatch(`${html}\n${main}`, /resumeHelpButton|openTutorialFromPause|tutorialFromPause/);
   assert.match(html, /id="reactorHudValue">0%/);
   assert.doesNotMatch(html, /id="helpButton"|id="soundButton"|id="chain"|id="runModeStatus"/);
   assert.doesNotMatch(`${html}\n${main}`, /reactorInstruction|POWER \$\{reactorPower\}/);
+});
+
+test('그래픽 테마는 가로 스크롤 카드로 선택한다', async () => {
+  const [main, progression, style] = await Promise.all([
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/progression.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/style.css', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(progression, /\{ id: 'default', label: '기본'/);
+  assert.match(progression, /\{ id: 'pixel', label: '픽셀'/);
+  assert.match(progression, /\{ id: 'neon', label: '네온'/);
+  assert.doesNotMatch(progression, /id: 'reactor'|id: 'ember'|id: 'aurora'/);
+  assert.match(style, /\.theme-options\s*\{[\s\S]*display: flex[\s\S]*overflow-x: auto[\s\S]*scroll-snap-type: inline mandatory/);
+  assert.match(style, /\.theme-options button\s*\{[\s\S]*flex: 0 0 min\(72%, 220px\)/);
+  assert.match(main, /theme === 'pixel'/);
+  assert.match(main, /theme === 'neon'/);
+});
+
+test('홈은 서버 기준 랭킹 에너지와 충전 대기 UI를 표시한다', async () => {
+  const [html, main, service] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/ranked-service.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(html, /id="rankedEnergyValue">⚡ — \/ 3/);
+  assert.match(html, /id="rankedEnergyActions" hidden/);
+  assert.match(html, /광고 보고 \+1/);
+  assert.match(main, /다음 충전까지 \$\{formatEnergyCountdown\(energy\.remainingMs\)\}/);
+  assert.match(main, /에너지 충전 중 <span>⚡<\/span>/);
+  assert.match(service, /httpsCallable\(functions, 'getRankedEnergy'/);
 });

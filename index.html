@@ -34,6 +34,7 @@
           <h1>COLOR<br /><span>BOMB</span></h1>
         </div>
         <div class="header-actions">
+          <button class="icon-button home-only-action" id="homeHelpButton" type="button" aria-label="게임 방법 열기">?</button>
           <button class="icon-button home-only-action" id="profileButton" aria-label="마이페이지 열기">◎</button>
           <button class="icon-button home-only-action" id="settingsButton" aria-label="설정 열기">⚙</button>
           <button class="icon-button playing-only-action" id="pauseButton" aria-label="게임 일시정지">Ⅱ</button>
@@ -95,11 +96,18 @@
               <p class="ranking-my-best" id="rankingMyBest">MY BEST · —</p>
               <ol id="homeLeaderboardList"></ol>
             </section>
+            <section class="ranked-energy-panel" id="rankedEnergyPanel" aria-live="polite">
+              <p><span>RANKED ENERGY</span><strong id="rankedEnergyValue">⚡ — / 3</strong></p>
+              <small id="rankedEnergyTimer">서버에서 에너지를 확인하고 있어요.</small>
+              <div class="ranked-energy-actions" id="rankedEnergyActions" hidden>
+                <button type="button" disabled title="앱 출시 후 이용할 수 있습니다.">광고 보고 +1</button>
+                <button type="button" disabled title="앱 출시 후 이용할 수 있습니다.">에너지 충전</button>
+              </div>
+            </section>
             <div class="end-actions">
               <button id="startButton" data-game-mode="practice">연습하기 <span>▶</span></button>
               <button id="rankedStartButton" data-game-mode="ranked" disabled title="랭킹 서버에 연결하는 중">로딩 중… <span>◆</span></button>
               <button id="rankingButton">TOP 50 <span>◆</span></button>
-              <button class="home-only-action" id="homeHelpButton" type="button">게임 방법 <span>?</span></button>
               <button id="shareButton" hidden>공유하기 <span>↗</span></button>
               <button id="homeButton" hidden>홈으로 <span>⌂</span></button>
             </div>

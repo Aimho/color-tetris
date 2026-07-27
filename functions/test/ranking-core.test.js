@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DAILY_ATTEMPT_LIMIT,
   calculateLedgerScore,
   getKstDay,
   getKstSeason,
@@ -12,10 +11,6 @@ import {
 } from '../ranking-core.js';
 import { createReplayFixture } from '../shared/ranked-replay.js';
 import { replayRankedPlacements } from '../shared/ranked-replay.js';
-
-test('테스트 기간에는 랭킹 일일 도전 횟수를 제한하지 않는다', () => {
-  assert.equal(DAILY_ATTEMPT_LIMIT, null);
-});
 
 function ledger(overrides = {}) {
   const fixture = createReplayFixture('test-seed', 100);
@@ -65,6 +60,11 @@ test('점수·플랫폼·통계가 원장과 다르면 거부한다', () => {
   assert.throws(() => validateLedger(ledger({platform:'desktop'}), run, 60_000), /run-mismatch/);
   assert.throws(() => validateLedger(ledger({directClears:99}), run, 60_000), /stats-mismatch/);
   assert.throws(() => validateReplay(ledger({piecesPlaced:2}), run), /replay-mismatch/);
+});
+
+test('생성됐지만 아직 터지지 않은 배수 셀은 정상 통계로 인정한다', () => {
+  const result = validateLedger(ledger({multiplierCells:1}), run, 60_000);
+  assert.equal(result.multiplierCells, 1);
 });
 
 test('최고 기록은 점수·레벨·달성 시각 순으로 교체한다', () => {

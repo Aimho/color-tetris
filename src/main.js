@@ -6,7 +6,7 @@ import { createPieceColors, rotateCellClockwise, rotateSquareCells, wallKickOffs
 import { MusicEngine } from './music.js';
 import { canResetLock, getClearIntensity, getClearScore, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
 import { attachQueuedSpecial, createSpecialRewardQueue, earnSpecialRewards, resolveSpecialEffects } from './events.js';
-import { chargeReactor, finishRun, readProfile, unlockedThemes } from './progression.js';
+import { chargeReactor, finishRun, normalizeTheme, readProfile, unlockedThemes } from './progression.js';
 import { chooseMultiplierDrop, getChainPower, getClearSpecialMultiplier, getMultiplierRewards } from './reactor.js';
 import {
   GAME_MODES,
@@ -18,6 +18,11 @@ import {
 import { createOperationGuard } from './operation-guard.js';
 import { createScoreLedger } from './ranking-model.js';
 import { createRankedRandom } from '../functions/shared/ranked-random.js';
+import {
+  createRankedEnergyClock,
+  formatEnergyCountdown,
+  projectRankedEnergy,
+} from './ranked-energy.js';
 import { setupPwa } from './pwa.js';
 import { createGameResult, createShareText } from './game-result.js';
 import { captureClientError, initializeSentry } from './sentry.js';
@@ -86,6 +91,9 @@ const shareButton = document.querySelector('#shareButton');
 const homeButton = document.querySelector('#homeButton');
 const startButton = document.querySelector('#startButton');
 const rankedStartButton = document.querySelector('#rankedStartButton');
+const rankedEnergyValue = document.querySelector('#rankedEnergyValue');
+const rankedEnergyTimer = document.querySelector('#rankedEnergyTimer');
+const rankedEnergyActions = document.querySelector('#rankedEnergyActions');
 const homeHelpButton = document.querySelector('#homeHelpButton');
 const pauseButton = document.querySelector('#pauseButton');
 const profileButton = document.querySelector('#profileButton');
@@ -148,10 +156,16 @@ let settings = readSettings();
 let prefersReducedMotion = shouldReduceMotion();
 let serverProfile = null;
 let currentGameResult = null;
+let rankedEnergyClock = null;
 const rankedStartGuard = createOperationGuard();
 
 buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 settingsVersion.textContent = `COLOR BOMB · VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
+
+window.addEventListener('vite:preloadError', event => {
+  event.preventDefault();
+  location.reload();
+});
 
 function getLeaderboardApi() {
   leaderboardApiPromise ||= import('./leaderboard.js');
@@ -198,8 +212,24 @@ function renderLocalProfile() {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.theme = theme.id;
-    button.textContent = theme.label;
-    button.setAttribute('aria-pressed', String(profile.theme === theme.id));
+    button.setAttribute('aria-pressed', String(normalizeTheme(profile.theme) === theme.id));
+    button.setAttribute('aria-label', `${theme.label} 테마: ${theme.caption}`);
+    const preview = document.createElement('span');
+    preview.className = 'theme-preview';
+    preview.setAttribute('aria-hidden', 'true');
+    preview.replaceChildren(...[0, 1, 2, 3].map(color => {
+      const cell = document.createElement('i');
+      cell.style.setProperty('--preview-color', COLORS[color]);
+      return cell;
+    }));
+    const copy = document.createElement('span');
+    copy.className = 'theme-copy';
+    const label = document.createElement('strong');
+    label.textContent = theme.label;
+    const caption = document.createElement('small');
+    caption.textContent = theme.caption;
+    copy.append(label, caption);
+    button.append(preview, copy);
     return button;
   }));
 }
@@ -289,14 +319,41 @@ async function refreshRankedAvailability() {
   try {
     const { rankedServiceStatus } = await import('./ranked-service.js');
     const status = await rankedServiceStatus();
+    updateRankedEnergy(status.energy);
     rankedStartButton.disabled = !status.ready;
     rankedStartButton.innerHTML = status.ready
       ? '랭킹 도전 <span>◆</span>'
-      : '로딩 중… <span>◆</span>';
+      : '에너지 충전 중 <span>⚡</span>';
     rankedStartButton.title = status.reason;
   } catch {
     rankedStartButton.disabled = true;
     rankedStartButton.title = '랭킹 서버에 연결할 수 없습니다.';
+  }
+}
+
+function updateRankedEnergy(payload) {
+  if (payload) rankedEnergyClock = createRankedEnergyClock(payload);
+  renderRankedEnergy();
+}
+
+function renderRankedEnergy() {
+  const energy = projectRankedEnergy(rankedEnergyClock);
+  if (!energy) {
+    rankedEnergyValue.textContent = '⚡ — / 3';
+    rankedEnergyTimer.textContent = '서버에서 에너지를 확인하고 있어요.';
+    rankedEnergyActions.hidden = true;
+    return;
+  }
+  rankedEnergyValue.textContent = `⚡ ${energy.balance} / ${energy.max}`;
+  rankedEnergyTimer.textContent = energy.balance >= energy.max
+    ? '에너지가 가득 찼어요.'
+    : `다음 충전까지 ${formatEnergyCountdown(energy.remainingMs)}`;
+  rankedEnergyActions.hidden = energy.balance > 0;
+  if (!running && rankedLoading.hidden) {
+    rankedStartButton.disabled = energy.balance <= 0;
+    rankedStartButton.innerHTML = energy.balance > 0
+      ? '랭킹 도전 <span>◆</span>'
+      : '에너지 충전 중 <span>⚡</span>';
   }
 }
 
@@ -767,12 +824,40 @@ function ghostY() {
 }
 
 function drawCell(context, x, y, colorIndex, size=CELL, alpha=1, event=null) {
-  const pad = Math.max(1.5, size * .06), px=x*size+pad, py=y*size+pad, s=size-pad*2;
+  const theme = normalizeTheme(profile.theme);
+  const pad = theme === 'pixel' ? Math.max(1, size * .035) : Math.max(1.5, size * .06);
+  const px=x*size+pad, py=y*size+pad, s=size-pad*2;
   context.globalAlpha = alpha;
-  context.fillStyle = COLORS[colorIndex];
-  roundRect(context, px, py, s, s, size*.17); context.fill();
-  context.fillStyle = 'rgba(255,255,255,.25)';
-  roundRect(context, px+size*.09, py+size*.07, s-size*.18, size*.075, size*.04); context.fill();
+  if (theme === 'pixel') {
+    context.fillStyle = COLORS[colorIndex];
+    context.fillRect(px, py, s, s);
+    context.fillStyle = 'rgba(255,255,255,.3)';
+    context.fillRect(px + size * .07, py + size * .07, s - size * .14, Math.max(2, size * .08));
+    context.fillStyle = 'rgba(7,9,9,.24)';
+    context.fillRect(px, py + s - size * .1, s, size * .1);
+    context.fillRect(px + s - size * .1, py, size * .1, s);
+  } else if (theme === 'neon') {
+    context.save();
+    context.fillStyle = 'rgba(7,9,12,.88)';
+    roundRect(context, px, py, s, s, size * .1); context.fill();
+    context.strokeStyle = COLORS[colorIndex];
+    context.lineWidth = Math.max(1.5, size * .075);
+    context.shadowColor = COLORS[colorIndex];
+    context.shadowBlur = alpha < 1 ? size * .18 : size * .3;
+    roundRect(context, px + size * .045, py + size * .045, s - size * .09, s - size * .09, size * .08);
+    context.stroke();
+    context.globalAlpha = alpha * .32;
+    context.fillStyle = COLORS[colorIndex];
+    roundRect(context, px + size * .1, py + size * .1, s - size * .2, s - size * .2, size * .04);
+    context.fill();
+    context.restore();
+    context.globalAlpha = alpha;
+  } else {
+    context.fillStyle = COLORS[colorIndex];
+    roundRect(context, px, py, s, s, size*.17); context.fill();
+    context.fillStyle = 'rgba(255,255,255,.25)';
+    roundRect(context, px+size*.09, py+size*.07, s-size*.18, size*.075, size*.04); context.fill();
+  }
   if (settings.colorAssist) {
     const corner = Math.max(3, size * .13);
     context.fillStyle = 'rgba(7,9,9,.72)';
@@ -1110,6 +1195,7 @@ function updateParticles(dt) {
 }
 
 function drawParticles() {
+  const theme = normalizeTheme(profile.theme);
   for (const particle of particles) {
     const fade = Math.max(0, 1 - particle.age / particle.life);
     ctx.save();
@@ -1117,12 +1203,21 @@ function drawParticles() {
     ctx.rotate(particle.rotation);
     ctx.globalAlpha = fade;
     ctx.fillStyle = particle.color;
-    ctx.beginPath();
-    ctx.moveTo(0, -particle.size);
-    ctx.lineTo(particle.size * .8, particle.size * .65);
-    ctx.lineTo(-particle.size * .75, particle.size * .45);
-    ctx.closePath();
-    ctx.fill();
+    if (theme === 'pixel') {
+      const size = Math.max(2, Math.round(particle.size * .82));
+      ctx.fillRect(-size / 2, -size / 2, size, size);
+    } else if (theme === 'neon') {
+      ctx.shadowColor = particle.color;
+      ctx.shadowBlur = particle.size * 1.8;
+      ctx.fillRect(-particle.size * .18, -particle.size, particle.size * .36, particle.size * 2);
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(0, -particle.size);
+      ctx.lineTo(particle.size * .8, particle.size * .65);
+      ctx.lineTo(-particle.size * .75, particle.size * .45);
+      ctx.closePath();
+      ctx.fill();
+    }
     ctx.restore();
   }
 }
@@ -1148,8 +1243,15 @@ function roundRect(context,x,y,w,h,r) {
 
 function draw() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle='#070909'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.strokeStyle='rgba(255,255,255,.035)'; ctx.lineWidth=1;
+  const theme = normalizeTheme(profile.theme);
+  ctx.fillStyle = theme === 'neon' ? '#03050a' : theme === 'pixel' ? '#0b1010' : '#070909';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle = theme === 'neon'
+    ? 'rgba(102,236,255,.065)'
+    : theme === 'pixel'
+      ? 'rgba(255,255,255,.055)'
+      : 'rgba(255,255,255,.035)';
+  ctx.lineWidth=1;
   for(let x=1;x<COLS;x++){ctx.beginPath();ctx.moveTo(x*CELL,0);ctx.lineTo(x*CELL,ROWS*CELL);ctx.stroke();}
   for(let y=1;y<ROWS;y++){ctx.beginPath();ctx.moveTo(0,y*CELL);ctx.lineTo(COLS*CELL,y*CELL);ctx.stroke();}
   const connected = connectionPreview();
@@ -1198,10 +1300,14 @@ function updateReactor() {
 }
 
 function applyProfileTheme() {
-  const themes = unlockedThemes(profile);
-  if (!themes.some(theme => theme.id === profile.theme)) profile.theme = 'reactor';
-  const theme = themes.find(item => item.id === profile.theme) || themes[0];
-  document.body.dataset.theme = theme.id;
+  const normalized = normalizeTheme(profile.theme);
+  if (profile.theme !== normalized) {
+    profile.theme = normalized;
+    try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
+  }
+  document.body.dataset.theme = normalized;
+  draw();
+  drawRacks();
 }
 
 function showChain(n, intensity = 'clear', points = 0) {
@@ -1321,6 +1427,7 @@ async function submitCompletedRankedRun(resultRunId, finalScore, finalLevel) {
       getLeaderboardApi(),
     ]);
     const submission = await submitRankedRun(rankedSession.runId, completedRunLedger);
+    updateRankedEnergy(submission.energy);
     const leaderboard = await loadTopScores(runPlatform, rankedSession.season).catch(() => null);
     nextResult = createGameResult({
       ranked:true,
@@ -1698,13 +1805,18 @@ async function startSelectedMode(mode) {
     try {
       rankedStartButton.disabled = true;
       rankedStartButton.innerHTML = '연결 중… <span>◆</span>';
-      const { startRankedRun } = await import('./ranked-service.js');
+      const [{startRankedRun}] = await Promise.all([
+        import('./ranked-service.js'),
+        getLeaderboardApi(),
+      ]);
       const session = await startRankedRun({platform:inputPlatform});
       if (!rankedStartGuard.isCurrent(operation)) return;
       pendingRankedSession = session;
+      updateRankedEnergy(session.energy);
       runPlatform = pendingRankedSession.platform;
     } catch (error) {
       if (!rankedStartGuard.isCurrent(operation)) return;
+      updateRankedEnergy(error?.details?.energy || error?.customData?.details?.energy);
       setRankedLoading(false);
       returnHome();
       overlayCopy.textContent = error?.message || '랭킹 서버에 연결하지 못했습니다. 연습 모드는 계속 이용할 수 있습니다.';
@@ -1991,6 +2103,7 @@ canvas.addEventListener('lostpointercapture',()=>{ gestureStart=null; });
 
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
 syncSettingsForm(); draw(); drawRacks(); updateStats(); updateReactor(); applyProfileTheme(); renderLocalProfile();
+setInterval(renderRankedEnergy, 1000);
 refreshRankedAvailability();
 import('./profile-service.js')
   .then(({loadPlayerProfile}) => loadPlayerProfile())

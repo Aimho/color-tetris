@@ -23,7 +23,7 @@
 - 로컬 JDK를 Java 21 이상으로 올린다.
 - `npm run test:rules`로 Firestore 보안 규칙 에뮬레이터 테스트를 다시 실행한다.
 - Firebase App Check 실패율, Functions 호출 수와 Firestore 읽기 수를 모니터링한다.
-- 익명 UID 재생성으로 랭킹 하루 3회 제한을 우회하는 비정상 패턴을 관찰한다.
+- 익명 UID 재생성으로 랭킹 에너지 제한을 우회하는 비정상 패턴을 관찰한다.
 
 ## 우선순위 4: Android 앱 출시 재개
 

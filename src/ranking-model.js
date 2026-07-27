@@ -1,19 +1,5 @@
-import { getKstDay, getKstSeason } from './game-session.js';
+import { getKstSeason } from './game-session.js';
 import { RULE_VERSION } from './rule-version.js';
-
-export const DAILY_RANKED_ATTEMPTS = null;
-
-// Display-only estimate. The server transaction owns the actual reservation.
-export function remainingRankedAttempts(usage, date = new Date(), limit = DAILY_RANKED_ATTEMPTS) {
-  const day = getKstDay(date);
-  const used = usage?.day === day && Number.isInteger(usage.used) ? usage.used : 0;
-  const normalizedUsed = Math.max(0, used);
-  return {
-    day,
-    used:limit === null ? normalizedUsed : Math.min(limit, normalizedUsed),
-    remaining:limit === null ? null : Math.max(0, limit - used),
-  };
-}
 
 export function compareRankEntries(left, right) {
   return right.score - left.score

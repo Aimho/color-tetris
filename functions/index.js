@@ -4,7 +4,6 @@ import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import {
-  DAILY_ATTEMPT_LIMIT,
   RULE_VERSION,
   RUN_TTL_MS,
   getKstDay,
@@ -13,6 +12,11 @@ import {
   validateLedger,
   validateReplay,
 } from './ranking-core.js';
+import {
+  calculateRankedEnergy,
+  rewardRankedEnergy,
+  spendRankedEnergy,
+} from './shared/ranked-energy.js';
 import { RANKED_RANDOM_VERSION } from './shared/ranked-random.js';
 import {
   canChangeNickname,
@@ -42,23 +46,21 @@ export const startRankedRun = onCall(OPTIONS, async request => {
   const day = getKstDay(nowDate);
   const season = getKstSeason(nowDate);
   const runId = randomUUID();
-  const usageRef = db.doc(`ranked_attempt_usage/${uid}_${day}`);
+  const energyRef = db.doc(`ranked_energy/${uid}`);
   const runRef = db.doc(`ranked_runs/${runId}`);
   const requestRef = db.doc(`ranked_run_requests/${uid}_${day}_${requestId}`);
 
   const remaining = await db.runTransaction(async transaction => {
     const previousRequest = await transaction.get(requestRef);
     if (previousRequest.exists) return previousRequest.data().response;
-    let used = 0;
-    if (DAILY_ATTEMPT_LIMIT !== null) {
-      const usage = await transaction.get(usageRef);
-      used = usage.exists ? usage.data().used : 0;
-      if (used >= DAILY_ATTEMPT_LIMIT) throw new HttpsError('resource-exhausted', '오늘의 랭킹 도전을 모두 사용했습니다.');
-      transaction.set(usageRef, {
-        uid, day, used:used + 1, updatedAt:FieldValue.serverTimestamp(),
-        cleanupAt:Timestamp.fromMillis(now.toMillis() + 8 * 24 * 60 * 60 * 1000),
+    const energySnapshot = await transaction.get(energyRef);
+    const energy = spendRankedEnergy(energySnapshot.data(), now.toMillis());
+    if (!energy.spent) {
+      throw new HttpsError('resource-exhausted', '에너지가 충전 중입니다.', {
+        energy:serializeRankedEnergy(energy),
       });
     }
+    transaction.set(energyRef, energyDocument(uid, energy, now));
     transaction.create(runRef, {
       uid, day, season, platform, ruleVersion:RULE_VERSION,
       seed:runId, randomVersion:RANKED_RANDOM_VERSION,
@@ -68,7 +70,7 @@ export const startRankedRun = onCall(OPTIONS, async request => {
     const result = {
       runId, day, season, platform, ruleVersion:RULE_VERSION,
       seed:runId, randomVersion:RANKED_RANDOM_VERSION,
-      remaining:DAILY_ATTEMPT_LIMIT === null ? null : DAILY_ATTEMPT_LIMIT - used - 1,
+      energy:serializeRankedEnergy(energy),
       expiresAt:now.toMillis() + RUN_TTL_MS,
     };
     transaction.create(requestRef, {
@@ -103,10 +105,12 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
         previousScore:initialRun.previousScore,
         bestScore:initialRun.bestScore,
         score:initialRun.finalScore,
-      level:initialRun.finalLevel,
-      name:initialRun.finalName || name,
-    };
-  }
+        level:initialRun.finalLevel,
+        name:initialRun.finalName || name,
+        energyRewarded:Boolean(initialRun.energyRewarded),
+        energy:initialRun.energyAfter || null,
+      };
+    }
   const verifiedAt = Timestamp.now();
   let ledger;
   try {
@@ -138,17 +142,27 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
         score:run.finalScore,
         level:run.finalLevel,
         name:run.finalName || name,
+        energyRewarded:Boolean(run.energyRewarded),
+        energy:run.energyAfter || null,
       };
     }
     const now = Timestamp.now();
 
     const scoreRef = db.doc(`season_rankings/${run.season}_${run.platform}/scores/${uid}`);
-    const previousSnapshot = await transaction.get(scoreRef);
+    const energyRef = db.doc(`ranked_energy/${uid}`);
+    const [previousSnapshot, energySnapshot] = await Promise.all([
+      transaction.get(scoreRef),
+      transaction.get(energyRef),
+    ]);
     const previous = previousSnapshot.data();
     const firstRecord = !previous;
     const updated = !previous
       || ledger.score > previous.score
       || (ledger.score === previous.score && ledger.level > previous.level);
+
+    const energy = updated
+      ? rewardRankedEnergy(energySnapshot.data(), now.toMillis())
+      : calculateRankedEnergy(energySnapshot.data(), now.toMillis());
 
     transaction.update(runRef, {
       status:'accepted', submittedAt:now, verifiedAt:now, bestUpdated:updated,
@@ -156,7 +170,10 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
       previousScore:previous?.score ?? null,
       bestScore:updated ? ledger.score : previous.score,
       finalScore:ledger.score, finalLevel:ledger.level, finalName:name,
+      energyRewarded:updated && energy.rewarded,
+      energyAfter:serializeRankedEnergy(energy),
     });
+    transaction.set(energyRef, energyDocument(uid, energy, now));
     transaction.create(db.doc(`ranked_submissions/${runId}`), {
       uid, name, runId, season:run.season, platform:run.platform,
       ruleVersion:RULE_VERSION, ledger, status:'accepted',
@@ -179,9 +196,19 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
       score:ledger.score,
       level:ledger.level,
       name,
+      energyRewarded:updated && energy.rewarded,
+      energy:serializeRankedEnergy(energy),
     };
   });
   return result;
+});
+
+export const getRankedEnergy = onCall(OPTIONS, async request => {
+  const uid = requireRankedUid(request);
+  const now = Timestamp.now();
+  const snapshot = await db.doc(`ranked_energy/${uid}`).get();
+  const energy = calculateRankedEnergy(snapshot.data(), now.toMillis());
+  return serializeRankedEnergy(energy);
 });
 
 export const getOrCreatePlayerProfile = onCall(OPTIONS, async request => {
@@ -384,4 +411,22 @@ function normalizeRequestId(value) {
     throw new HttpsError('invalid-argument', '요청 ID가 올바르지 않습니다.');
   }
   return requestId.toLowerCase();
+}
+
+function energyDocument(uid, energy, now) {
+  return {
+    uid,
+    balance:energy.balance,
+    chargedAt:Timestamp.fromMillis(energy.chargedAtMs),
+    updatedAt:now,
+  };
+}
+
+function serializeRankedEnergy(energy) {
+  return {
+    balance:energy.balance,
+    max:energy.max,
+    nextRechargeAt:energy.nextRechargeAt,
+    serverNow:energy.serverNow,
+  };
 }
