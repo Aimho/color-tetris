@@ -44,16 +44,25 @@ test('저장된 게임을 버리고 홈으로 돌아오면 랭킹 버튼 상태�
   assert.match(discardSavedRun, /refreshRankedAvailability\(\)/);
 });
 
-test('랭킹 도전을 누르면 서버 응답을 기다리기 전에 게임 화면으로 전환한다', async () => {
-  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+test('랭킹 도전을 누르면 서버 응답을 기다리는 동안 이전 보드를 로딩 UI로 가린다', async () => {
+  const [html, main] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+  ]);
   const startSelectedMode = main.match(/async function startSelectedMode\(mode\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
   const enterGameIndex = startSelectedMode.indexOf("document.body.classList.add('playing')");
+  const showLoadingIndex = startSelectedMode.indexOf('setRankedLoading(true)');
   const awaitRankedIndex = startSelectedMode.indexOf("await import('./ranked-service.js')");
 
+  assert.match(html, /id="rankedLoading"[^>]*role="status"[^>]*aria-live="polite"[^>]*hidden/);
   assert.notEqual(enterGameIndex, -1);
+  assert.notEqual(showLoadingIndex, -1);
   assert.notEqual(awaitRankedIndex, -1);
   assert.ok(enterGameIndex < awaitRankedIndex);
+  assert.ok(showLoadingIndex < awaitRankedIndex);
   assert.match(startSelectedMode, /startRankedRun\(\{platform:inputPlatform\}\)/);
+  assert.match(main, /function reset[\s\S]*?setRankedLoading\(false\)/);
+  assert.match(main, /function returnHome[\s\S]*?setRankedLoading\(false\)/);
 });
 
 test('랭킹 기록의 이름은 클라이언트 입력이 아닌 예약 프로필을 사용한다', async () => {
@@ -66,13 +75,15 @@ test('랭킹 기록의 이름은 클라이언트 입력이 아닌 예약 프로�
   assert.doesNotMatch(client, /submitRun\(\{runId,\s*name,/);
 });
 
-test('게임 HUD는 일시정지와 리액터 퍼센트만 직접 제공한다', async () => {
+test('게임 방법은 홈에 있고 게임 중단 팝업에는 계속하기와 홈만 제공한다', async () => {
   const [html, main] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),
     readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
   ]);
   assert.match(html, /id="pauseButton"/);
-  assert.match(html, /id="resumeHelpButton"/);
+  assert.match(html, /class="home-only-action" id="homeHelpButton"/);
+  assert.match(main, /homeHelpButton\.addEventListener\('click', \(\) => openTutorial\(false\)\)/);
+  assert.doesNotMatch(`${html}\n${main}`, /resumeHelpButton|openTutorialFromPause|tutorialFromPause/);
   assert.match(html, /id="reactorHudValue">0%/);
   assert.doesNotMatch(html, /id="helpButton"|id="soundButton"|id="chain"|id="runModeStatus"/);
   assert.doesNotMatch(`${html}\n${main}`, /reactorInstruction|POWER \$\{reactorPower\}/);

@@ -65,8 +65,8 @@ const tutorialClose = document.querySelector('#tutorialClose');
 const tutorialDismiss = document.querySelector('#tutorialDismiss');
 const resumeDialog = document.querySelector('#resumeDialog');
 const resumeButton = document.querySelector('#resumeButton');
-const resumeHelpButton = document.querySelector('#resumeHelpButton');
 const resumeDiscardButton = document.querySelector('#resumeDiscardButton');
+const rankedLoading = document.querySelector('#rankedLoading');
 const gestureHint = document.querySelector('#gestureHint');
 const gameShell = document.querySelector('.game-shell');
 const scoreRecord = document.querySelector('#scoreRecord');
@@ -86,6 +86,7 @@ const shareButton = document.querySelector('#shareButton');
 const homeButton = document.querySelector('#homeButton');
 const startButton = document.querySelector('#startButton');
 const rankedStartButton = document.querySelector('#rankedStartButton');
+const homeHelpButton = document.querySelector('#homeHelpButton');
 const pauseButton = document.querySelector('#pauseButton');
 const profileButton = document.querySelector('#profileButton');
 const settingsButton = document.querySelector('#settingsButton');
@@ -115,7 +116,6 @@ let arrowBeams = [], bombBursts = [], multiplierBursts = [], multiplierDrops = [
 let specialRewards = createSpecialRewardQueue();
 let tutorialStartsGame = false, piecesSpawned = 0, hintTimer;
 let tutorialOpener = null, autoPaused = false;
-let tutorialFromPause = false;
 let gestureStart = null;
 let leaderboardApiPromise;
 let randomSource = Math.random;
@@ -357,6 +357,7 @@ function spawn() {
 
 function reset(mode = gameMode, session = pendingRankedSession) {
   stopLoop();
+  setRankedLoading(false);
   runId++;
   gameMode = mode;
   runMetrics = createRunMetrics();
@@ -1244,13 +1245,6 @@ function openTutorial(startsGame = false) {
 }
 
 function closeTutorial() {
-  if (tutorialFromPause) {
-    tutorial.hidden = true;
-    tutorialFromPause = false;
-    resumeDialog.hidden = false;
-    resumeHelpButton.focus({preventScroll:true});
-    return;
-  }
   const startsGame = tutorialStartsGame;
   tutorial.hidden = true;
   gameShell.inert = false;
@@ -1260,6 +1254,11 @@ function closeTutorial() {
   tutorialStartsGame = false;
   if (!startsGame) tutorialOpener?.focus?.();
   tutorialOpener = null;
+}
+
+function setRankedLoading(visible) {
+  rankedLoading.hidden = !visible;
+  boardFrame.classList.toggle('is-ranked-loading', visible);
 }
 
 function showGestureHint(message) {
@@ -1688,12 +1687,14 @@ async function startSelectedMode(mode) {
   const operation = rankedStartGuard.begin();
   unlockAudioSession();
   closeHomeRanking();
+  setRankedLoading(false);
   pendingStartMode = mode;
   pendingRankedSession = null;
   if (mode === GAME_MODES.RANKED) {
     document.body.classList.add('playing');
     overlay.classList.remove('visible', 'game-over', 'ranking-view');
     pauseButton.disabled = true;
+    setRankedLoading(true);
     try {
       rankedStartButton.disabled = true;
       rankedStartButton.innerHTML = '연결 중… <span>◆</span>';
@@ -1704,6 +1705,7 @@ async function startSelectedMode(mode) {
       runPlatform = pendingRankedSession.platform;
     } catch (error) {
       if (!rankedStartGuard.isCurrent(operation)) return;
+      setRankedLoading(false);
       returnHome();
       overlayCopy.textContent = error?.message || '랭킹 서버에 연결하지 못했습니다. 연습 모드는 계속 이용할 수 있습니다.';
       return;
@@ -1716,6 +1718,7 @@ async function startSelectedMode(mode) {
 
 startButton.addEventListener('click', () => startSelectedMode(GAME_MODES.PRACTICE));
 rankedStartButton.addEventListener('click', () => startSelectedMode(GAME_MODES.RANKED));
+homeHelpButton.addEventListener('click', () => openTutorial(false));
 rankingButton.addEventListener('click', openHomeRanking);
 homeButton.addEventListener('click', returnHome);
 profileButton.addEventListener('click', () => {
@@ -1852,15 +1855,6 @@ function requestResumeAfterInterruption() {
   resumeButton.focus({ preventScroll: true });
 }
 
-function openTutorialFromPause() {
-  if (!autoPaused) return;
-  tutorialFromPause = true;
-  resumeDialog.hidden = true;
-  tutorialSheet.scrollTop = 0;
-  tutorial.hidden = false;
-  tutorialDismiss.focus({preventScroll:true});
-}
-
 function continueAfterInterruption() {
   if (!autoPaused) return;
   unlockAudioSession();
@@ -1875,6 +1869,7 @@ function continueAfterInterruption() {
 
 function discardSavedRun() {
   rankedStartGuard.cancel();
+  setRankedLoading(false);
   clearRunSnapshot();
   stopLoop();
   runId++;
@@ -1899,6 +1894,7 @@ function discardSavedRun() {
 
 function returnHome() {
   rankedStartGuard.cancel();
+  setRankedLoading(false);
   stopLoop();
   runId++;
   running = false;
@@ -1929,7 +1925,6 @@ window.addEventListener('pagehide', () => {
 });
 window.addEventListener('pageshow', requestResumeAfterInterruption);
 resumeButton.addEventListener('click', continueAfterInterruption);
-resumeHelpButton.addEventListener('click', openTutorialFromPause);
 resumeDiscardButton.addEventListener('click', discardSavedRun);
 
 canvas.addEventListener('pointerdown',e=>{
