@@ -45,10 +45,13 @@ export async function connectGoogleAccount() {
   }
 }
 
-export async function startRankedRun(requestId = crypto.randomUUID()) {
+export async function startRankedRun(options = {}) {
+  const {platform, requestId = crypto.randomUUID()} = typeof options === 'string'
+    ? {requestId:options}
+    : options;
   if (!appCheck) throw new Error('랭킹 서버 보호 설정이 필요합니다.');
   await ensureAuthUser();
-  const result = await startRun({requestId});
+  const result = await startRun({requestId, platform});
   return result.data;
 }
 

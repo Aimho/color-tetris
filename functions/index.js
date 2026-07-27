@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { logger } from 'firebase-functions';
 import {
   DAILY_ATTEMPT_LIMIT,
   RULE_VERSION,
@@ -31,12 +32,11 @@ const OPTIONS = {
   memory:'256MiB',
   maxInstances:10,
 };
-
 export const startRankedRun = onCall(OPTIONS, async request => {
   const uid = requireRankedUid(request);
   await getOrCreateProfile(uid);
   const requestId = normalizeRequestId(request.data?.requestId);
-  const platform = safeAppPlatform(request.app?.appId);
+  const platform = safeAppPlatform(request.app?.appId, request.data?.platform);
   const now = Timestamp.now();
   const nowDate = now.toDate();
   const day = getKstDay(nowDate);
@@ -49,13 +49,16 @@ export const startRankedRun = onCall(OPTIONS, async request => {
   const remaining = await db.runTransaction(async transaction => {
     const previousRequest = await transaction.get(requestRef);
     if (previousRequest.exists) return previousRequest.data().response;
-    const usage = await transaction.get(usageRef);
-    const used = usage.exists ? usage.data().used : 0;
-    if (used >= DAILY_ATTEMPT_LIMIT) throw new HttpsError('resource-exhausted', '오늘의 랭킹 도전을 모두 사용했습니다.');
-    transaction.set(usageRef, {
-      uid, day, used:used + 1, updatedAt:FieldValue.serverTimestamp(),
-      cleanupAt:Timestamp.fromMillis(now.toMillis() + 8 * 24 * 60 * 60 * 1000),
-    });
+    let used = 0;
+    if (DAILY_ATTEMPT_LIMIT !== null) {
+      const usage = await transaction.get(usageRef);
+      used = usage.exists ? usage.data().used : 0;
+      if (used >= DAILY_ATTEMPT_LIMIT) throw new HttpsError('resource-exhausted', '오늘의 랭킹 도전을 모두 사용했습니다.');
+      transaction.set(usageRef, {
+        uid, day, used:used + 1, updatedAt:FieldValue.serverTimestamp(),
+        cleanupAt:Timestamp.fromMillis(now.toMillis() + 8 * 24 * 60 * 60 * 1000),
+      });
+    }
     transaction.create(runRef, {
       uid, day, season, platform, ruleVersion:RULE_VERSION,
       seed:runId, randomVersion:RANKED_RANDOM_VERSION,
@@ -65,7 +68,7 @@ export const startRankedRun = onCall(OPTIONS, async request => {
     const result = {
       runId, day, season, platform, ruleVersion:RULE_VERSION,
       seed:runId, randomVersion:RANKED_RANDOM_VERSION,
-      remaining:DAILY_ATTEMPT_LIMIT - used - 1,
+      remaining:DAILY_ATTEMPT_LIMIT === null ? null : DAILY_ATTEMPT_LIMIT - used - 1,
       expiresAt:now.toMillis() + RUN_TTL_MS,
     };
     transaction.create(requestRef, {
@@ -112,7 +115,11 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
       createdAtMs:initialRun.createdAt.toMillis(),
     }, verifiedAt.toMillis());
     validateReplay(ledger, initialRun);
-  } catch {
+  } catch (error) {
+    logger.warn('Ranked ledger validation failed', {
+      runId,
+      reason:String(error?.message || 'unknown').slice(0, 80),
+    });
     await recordFailedSubmission(runRef);
     throw new HttpsError('invalid-argument', '게임 기록을 검증할 수 없습니다.');
   }
@@ -360,10 +367,15 @@ async function syncClosedSeasonBadges(uid, profile) {
   }
 }
 
-function safeAppPlatform(appId) {
+function safeAppPlatform(appId, requestedPlatform) {
   const mobileAppIds = String(process.env.MOBILE_APP_IDS || '').split(',').filter(Boolean);
-  try { return platformForAppId(appId, mobileAppIds); }
-  catch { throw new HttpsError('failed-precondition', '등록되지 않은 앱입니다.'); }
+  try { return platformForAppId(appId, mobileAppIds, requestedPlatform); }
+  catch (error) {
+    if (error?.message === 'invalid-platform') {
+      throw new HttpsError('invalid-argument', '플랫폼 정보가 올바르지 않습니다.');
+    }
+    throw new HttpsError('failed-precondition', '등록되지 않은 앱입니다.');
+  }
 }
 
 function normalizeRequestId(value) {

@@ -12,7 +12,6 @@ import {
   GAME_MODES,
   clearRunSnapshot,
   detectPlatform,
-  rankedPlatformForRuntime,
   readRunSnapshot,
   saveRunSnapshot,
 } from './game-session.js';
@@ -21,6 +20,7 @@ import { createScoreLedger } from './ranking-model.js';
 import { createRankedRandom } from '../functions/shared/ranked-random.js';
 import { setupPwa } from './pwa.js';
 import { createGameResult, createShareText } from './game-result.js';
+import { captureClientError, initializeSentry } from './sentry.js';
 import {
   dragSensitivityScale,
   particleScale,
@@ -86,7 +86,7 @@ const shareButton = document.querySelector('#shareButton');
 const homeButton = document.querySelector('#homeButton');
 const startButton = document.querySelector('#startButton');
 const rankedStartButton = document.querySelector('#rankedStartButton');
-const runModeStatus = document.querySelector('#runModeStatus');
+const pauseButton = document.querySelector('#pauseButton');
 const profileButton = document.querySelector('#profileButton');
 const settingsButton = document.querySelector('#settingsButton');
 const profilePanel = document.querySelector('#profilePanel');
@@ -124,13 +124,16 @@ let profile = readProfile();
 let reactorRenderKey = '';
 let animationFrameId = null;
 let gameMode = GAME_MODES.PRACTICE;
-let runPlatform = detectPlatform({
+const inputPlatform = detectPlatform({
   native:globalThis.Capacitor?.isNativePlatform?.() === true,
   coarsePointer:isTouchDevice,
   touchPoints:navigator.maxTouchPoints,
 });
-const rankedRuntimePlatform = rankedPlatformForRuntime({
-  native:globalThis.Capacitor?.isNativePlatform?.() === true,
+let runPlatform = inputPlatform;
+const rankedRuntimePlatform = inputPlatform;
+initializeSentry({
+  release:`${__APP_VERSION__}-${__BUILD_ID__}`,
+  platform:inputPlatform,
 });
 let lastStableRunState = null;
 let pendingStartMode = GAME_MODES.PRACTICE;
@@ -385,8 +388,7 @@ function reset(mode = gameMode, session = pendingRankedSession) {
   homeButton.hidden = true;
   startButton.hidden = false;
   rankedStartButton.hidden = true;
-  runModeStatus.hidden = false;
-  runModeStatus.textContent = gameMode === GAME_MODES.RANKED ? 'RANKED' : 'PRACTICE';
+  pauseButton.disabled = false;
   lastTime = performance.now(); dropTimer = 0; lockTimer = 0;
   startMusic();
   updateReactor();
@@ -527,8 +529,6 @@ function restoreRun(snapshot) {
   lastStableRunState = structuredClone(snapshotRunState());
   document.body.classList.add('playing');
   overlay.classList.remove('visible', 'game-over', 'ranking-view');
-  runModeStatus.hidden = false;
-  runModeStatus.textContent = gameMode === GAME_MODES.RANKED ? 'RANKED' : 'PRACTICE';
   drawRacks();
   updateStats();
   updateReactor();
@@ -1330,8 +1330,19 @@ async function submitCompletedRankedRun(resultRunId, finalScore, finalLevel) {
       submission,
       leaderboard,
     });
-  } catch {
-    nextResult = createGameResult({ranked:true, score:finalScore, level:finalLevel, offline:true});
+  } catch (error) {
+    captureClientError('ranked-submit', error, {
+      platform:runPlatform,
+      season:rankedSession?.season,
+      ruleVersion:completedRunLedger?.ruleVersion,
+      piecesPlaced:completedRunLedger?.piecesPlaced,
+    });
+    nextResult = createGameResult({
+      ranked:true,
+      score:finalScore,
+      level:finalLevel,
+      offline:true,
+    });
   }
   if (runId !== resultRunId || !overlay.classList.contains('game-over')) return;
   currentGameResult = nextResult;
@@ -1677,25 +1688,23 @@ async function startSelectedMode(mode) {
   const operation = rankedStartGuard.begin();
   unlockAudioSession();
   closeHomeRanking();
-  rankingButton.hidden = true;
-  rankedStartButton.hidden = true;
   pendingStartMode = mode;
   pendingRankedSession = null;
   if (mode === GAME_MODES.RANKED) {
+    document.body.classList.add('playing');
+    overlay.classList.remove('visible', 'game-over', 'ranking-view');
+    pauseButton.disabled = true;
     try {
       rankedStartButton.disabled = true;
       rankedStartButton.innerHTML = '연결 중… <span>◆</span>';
       const { startRankedRun } = await import('./ranked-service.js');
-      const session = await startRankedRun();
+      const session = await startRankedRun({platform:inputPlatform});
       if (!rankedStartGuard.isCurrent(operation)) return;
       pendingRankedSession = session;
       runPlatform = pendingRankedSession.platform;
     } catch (error) {
       if (!rankedStartGuard.isCurrent(operation)) return;
-      rankingButton.hidden = false;
-      rankedStartButton.hidden = false;
-      rankedStartButton.disabled = false;
-      rankedStartButton.innerHTML = '랭킹 도전 <span>◆</span>';
+      returnHome();
       overlayCopy.textContent = error?.message || '랭킹 서버에 연결하지 못했습니다. 연습 모드는 계속 이용할 수 있습니다.';
       return;
     }
@@ -1804,7 +1813,7 @@ shareButton.addEventListener('click', shareGame);
 document.querySelectorAll('[data-access-action]').forEach(button => {
   button.addEventListener('click', () => act(button.dataset.accessAction));
 });
-document.querySelector('#pauseButton').addEventListener('click', () => {
+pauseButton.addEventListener('click', () => {
   pauseForInterruption();
   requestResumeAfterInterruption();
 });
@@ -1885,7 +1894,7 @@ function discardSavedRun() {
   rankingButton.hidden = false;
   shareButton.hidden = true;
   homeButton.hidden = true;
-  runModeStatus.hidden = true;
+  refreshRankedAvailability();
 }
 
 function returnHome() {
@@ -1906,7 +1915,6 @@ function returnHome() {
   rankingButton.hidden = false;
   shareButton.hidden = true;
   homeButton.hidden = true;
-  runModeStatus.hidden = true;
   currentGameResult = null;
   refreshRankedAvailability();
 }

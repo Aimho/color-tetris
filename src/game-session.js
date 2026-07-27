@@ -31,10 +31,6 @@ export function detectPlatform({
     : PLATFORMS.DESKTOP;
 }
 
-export function rankedPlatformForRuntime({native = false} = {}) {
-  return native ? PLATFORMS.MOBILE : PLATFORMS.DESKTOP;
-}
-
 export function createRunSnapshot(state, now = Date.now()) {
   return {
     version: RUN_SNAPSHOT_VERSION,

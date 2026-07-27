@@ -38,3 +38,21 @@ test('기존 기록과 오프라인 결과를 구분하고 공유 문구에 순�
   assert.equal(offline.kind, RESULT_KINDS.OFFLINE);
   assert.match(createShareText({...existing, rank:4}, '모바일'), /모바일 시즌 4위/);
 });
+
+test('공유 문구는 점수 다음 줄부터 레벨을 표시한다', () => {
+  assert.equal(
+    createShareText({score:220, level:1, rank:null}),
+    'COLOR BOMB 220점\nLV 1! 같은 색 6칸부터 연쇄가 시작됩니다.',
+  );
+});
+
+test('랭킹 저장 실패 시 자동 재시도를 친근하게 안내한다', () => {
+  const result = createGameResult({
+    ranked:true,
+    score:220,
+    level:1,
+    offline:true,
+  });
+  assert.equal(result.title, '기록은 잘 챙겨뒀어요!');
+  assert.equal(result.detail, '기록 전송이 지연되고 있어요. 연결되면 자동으로 다시 시도할게요.');
+});

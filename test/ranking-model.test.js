@@ -6,11 +6,15 @@ import {
   remainingRankedAttempts,
 } from '../src/ranking-model.js';
 
-test('랭킹 도전권은 KST 날짜가 바뀌면 하루 3회로 초기화된다', () => {
+test('랭킹 도전권은 테스트 기간에 횟수를 제한하지 않는다', () => {
   const before = new Date('2026-07-25T14:59:00Z');
   const after = new Date('2026-07-25T15:01:00Z');
-  assert.equal(remainingRankedAttempts({day:'2026-07-25', used:2}, before).remaining, 1);
-  assert.equal(remainingRankedAttempts({day:'2026-07-25', used:2}, after).remaining, 3);
+  assert.deepEqual(remainingRankedAttempts({day:'2026-07-25', used:2}, before), {
+    day:'2026-07-25', used:2, remaining:null,
+  });
+  assert.deepEqual(remainingRankedAttempts({day:'2026-07-25', used:2}, after), {
+    day:'2026-07-26', used:0, remaining:null,
+  });
 });
 
 test('동점은 점수·레벨·달성 시각·플레이어 ID 순으로 결정한다', () => {

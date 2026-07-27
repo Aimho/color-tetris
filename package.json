@@ -28,6 +28,7 @@
     "vite": "^7.0.0"
   },
   "dependencies": {
+    "@sentry/browser": "^10.68.0",
     "firebase": "^12.16.0"
   }
 }

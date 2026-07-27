@@ -719,22 +719,6 @@ footer span:last-child { text-align: right; }
 }
 
 .gesture-hint.visible { opacity: 1; transform: translate(-50%, 0); }
-.run-mode-badge {
-  position: absolute;
-  z-index: 2;
-  top: 10px;
-  left: 10px;
-  padding: 6px 8px;
-  color: var(--acid);
-  background: rgba(7,9,9,.82);
-  box-shadow: inset 0 0 0 1px rgba(233,246,91,.28);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: .14em;
-  pointer-events: none;
-}
-.run-mode-badge[hidden] { display: none; }
-
 .tutorial {
   position: fixed;
   z-index: 20;
@@ -1074,10 +1058,6 @@ body.playing footer { display: none; }
   }
   body.playing .next-rack {
     right: calc(50% - min(50vw, calc((100dvh - max(4px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom)) - 50px) / 4)) + 4px);
-  }
-  body.playing .run-mode-badge {
-    top: 58px;
-    left: 4px;
   }
 }
 

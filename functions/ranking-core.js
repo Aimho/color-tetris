@@ -2,7 +2,7 @@ import { replayRankedPlacements } from './shared/ranked-replay.js';
 import { RULE_VERSION } from './shared/ranked-protocol.js';
 
 export { RULE_VERSION } from './shared/ranked-protocol.js';
-export const DAILY_ATTEMPT_LIMIT = 3;
+export const DAILY_ATTEMPT_LIMIT = null;
 export const RUN_TTL_MS = 24 * 60 * 60 * 1000;
 const CHAIN_MULTIPLIERS = [1, 1.8, 3, 4.8, 7];
 const SCORE_MULTIPLIERS = new Set([1, 2, 3, 4, 6]);
@@ -18,8 +18,11 @@ export function getKstSeason(date = new Date()) {
   return getKstDay(date).slice(0, 7);
 }
 
-export function platformForAppId(appId, mobileAppIds = []) {
-  if (appId === WEB_APP_ID) return 'desktop';
+export function platformForAppId(appId, mobileAppIds = [], requestedPlatform = 'desktop') {
+  if (appId === WEB_APP_ID) {
+    if (!['mobile', 'desktop'].includes(requestedPlatform)) throw new Error('invalid-platform');
+    return requestedPlatform;
+  }
   if (mobileAppIds.includes(appId)) return 'mobile';
   throw new Error('unknown-app');
 }

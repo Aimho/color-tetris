@@ -21,7 +21,7 @@ export function createGameResult({
   if (offline) {
     return {
       ...base(RESULT_KINDS.OFFLINE, '기록은 잘 챙겨뒀어요!', normalizedScore, normalizedLevel),
-      detail:'연결되면 시즌 기록을 다시 확인할게요.',
+      detail:'기록 전송이 지연되고 있어요. 연결되면 자동으로 다시 시도할게요.',
     };
   }
   if (!submission) {
@@ -54,7 +54,7 @@ export function createGameResult({
 
 export function createShareText(result, platformLabel = '') {
   const rankText = result.rank ? ` · ${platformLabel ? `${platformLabel} ` : ''}시즌 ${result.rank}위` : '';
-  return `COLOR BOMB ${result.score.toLocaleString()}점 · LV ${result.level}${rankText}! 같은 색 6칸부터 연쇄가 시작됩니다.`;
+  return `COLOR BOMB ${result.score.toLocaleString()}점\nLV ${result.level}${rankText}! 같은 색 6칸부터 연쇄가 시작됩니다.`;
 }
 
 function base(kind, title, score, level) {

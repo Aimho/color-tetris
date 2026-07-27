@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  DAILY_ATTEMPT_LIMIT,
   calculateLedgerScore,
   getKstDay,
   getKstSeason,
@@ -11,6 +12,10 @@ import {
 } from '../ranking-core.js';
 import { createReplayFixture } from '../shared/ranked-replay.js';
 import { replayRankedPlacements } from '../shared/ranked-replay.js';
+
+test('테스트 기간에는 랭킹 일일 도전 횟수를 제한하지 않는다', () => {
+  assert.equal(DAILY_ATTEMPT_LIMIT, null);
+});
 
 function ledger(overrides = {}) {
   const fixture = createReplayFixture('test-seed', 100);
@@ -38,9 +43,13 @@ test('KST 기준 일자와 월간 시즌을 계산한다', () => {
   assert.equal(getKstSeason(date), '2026-08');
 });
 
-test('플랫폼은 요청 값이 아니라 등록된 App Check 앱 ID로 결정한다', () => {
-  assert.equal(platformForAppId('1:138832269891:web:f0236e6bc1a25972adbaf6'), 'desktop');
-  assert.equal(platformForAppId('android-app', ['android-app', 'ios-app']), 'mobile');
+test('웹은 요청한 터치 플랫폼을 사용하고 네이티브 앱은 모바일로 고정한다', () => {
+  const webAppId = '1:138832269891:web:f0236e6bc1a25972adbaf6';
+  assert.equal(platformForAppId(webAppId, [], 'mobile'), 'mobile');
+  assert.equal(platformForAppId(webAppId, [], 'desktop'), 'desktop');
+  assert.equal(platformForAppId(webAppId), 'desktop');
+  assert.equal(platformForAppId('android-app', ['android-app', 'ios-app'], 'desktop'), 'mobile');
+  assert.throws(() => platformForAppId(webAppId, [], 'tablet'), /invalid-platform/);
   assert.throws(() => platformForAppId('unknown'), /unknown-app/);
 });
 
