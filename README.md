@@ -193,15 +193,21 @@ firebase deploy --only firestore,hosting --project color-tetrix-aimho
 
 현재 Vite 웹 앱을 그대로 빌드한 뒤 Capacitor의 iOS `WKWebView`와 Android WebView로 감싸는 구조입니다. 게임 로직과 Canvas UI는 웹과 앱이 공유하며, 네이티브 프로젝트는 전체 화면, 방향 고정, 상태 표시줄, 앱 수명주기와 스토어 패키징을 담당합니다.
 
-Capacitor 설정은 포함되어 있지만 iOS 및 Android 플랫폼 폴더와 스토어 바이너리는 아직 생성하거나 배포하지 않습니다.
+앱 ID는 iOS와 Android 모두 `com.aimho.games.colorbomb`을 사용합니다. `ios/`와 `android/` 네이티브 프로젝트가 생성되어 있으며, 스토어 서명용 바이너리는 아직 배포하지 않습니다.
 
 ```bash
-npm run cap:add:ios
-npm run cap:add:android
 npm run cap:sync
 ```
 
-네이티브 런타임에서는 Service Worker를 등록하지 않고 번들된 `dist` 파일을 직접 로드합니다. 스토어 제출 전에는 세로 방향 고정, WebView 바운스·텍스트 선택·링크 미리보기 비활성화, Android 뒤로 가기 처리, iOS·Android 실기기 오디오 및 백그라운드 복귀 검증이 필요합니다. 각 플랫폼의 개발자 계정, 앱 서명, 아이콘 및 심사 메타데이터도 별도로 준비해야 합니다.
+웹 코드를 변경한 뒤에는 `npm run cap:sync`로 최신 `dist`를 두 네이티브 프로젝트에 복사합니다. Android 빌드는 JDK 21을 사용합니다.
+
+```bash
+JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./android/gradlew -p android assembleDebug
+xcodebuild -project ios/App/App.xcodeproj -scheme App \
+  -sdk iphonesimulator -configuration Debug build
+```
+
+네이티브 런타임에서는 Service Worker를 등록하지 않고 번들된 파일을 직접 로드합니다. iOS Simulator와 Android Emulator에서 설치·실행을 검증했으며, 구형 Android WebView를 위해 핵심 UI 색상에는 HEX 대체값을 제공합니다. 스토어 제출 전에는 iOS·Android 실기기 오디오 및 백그라운드 복귀, 세로 방향 고정, Android 뒤로 가기, 앱 아이콘과 스플래시 화면을 최종 검증해야 합니다. 각 플랫폼의 개발자 계정, 앱 서명과 심사 메타데이터도 별도로 준비해야 합니다.
 
 ## 프로젝트 구조
 
