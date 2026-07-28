@@ -82,6 +82,48 @@ test('랭킹 기록의 이름은 클라이언트 입력이 아닌 예약 프로�
   assert.doesNotMatch(client, /submitRun\(\{runId,\s*name,/);
 });
 
+test('랭킹 제출은 비동기 처리 중 초기화될 수 있는 전역 세션을 다시 읽지 않는다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  const submitCompletedRankedRun = main.match(
+    /async function submitCompletedRankedRun\(resultRunId, finalScore, finalLevel\) \{([\s\S]*?)\n\}/,
+  )?.[1] ?? '';
+
+  assert.match(submitCompletedRankedRun, /const session = rankedSession;/);
+  assert.match(submitCompletedRankedRun, /const ledger = completedRunLedger;/);
+  assert.match(submitCompletedRankedRun, /submitRankedRun\(session\.runId, ledger\)/);
+  assert.match(submitCompletedRankedRun, /loadTopScores\(session\.platform, session\.season\)/);
+  assert.doesNotMatch(submitCompletedRankedRun, /rankedSession\?*\.season/);
+});
+
+test('닉네임 변경은 현재 시즌의 모바일·데스크탑 랭킹 이름에도 반영한다', async () => {
+  const server = await readFile(new URL('../functions/index.js', import.meta.url), 'utf8');
+  const updatePlayerNickname = server.match(
+    /export const updatePlayerNickname = onCall\(OPTIONS, async request => \{([\s\S]*?)\n\}\);/,
+  )?.[1] ?? '';
+
+  assert.match(updatePlayerNickname, /getKstSeason\(now\.toDate\(\)\)/);
+  assert.match(server, /season_rankings\/\$\{season\}_mobile\/scores\/\$\{uid\}/);
+  assert.match(server, /season_rankings\/\$\{season\}_desktop\/scores\/\$\{uid\}/);
+  assert.match(updatePlayerNickname, /transaction\.update\(currentScoreRefs\[index\], \{name:nickname/);
+  assert.match(server, /syncCurrentRankingNames\(uid, profile\.nickname\)/);
+});
+
+test('게임오버는 홈 전용 랭킹 도전 버튼을 표시하지 않는다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  const endGame = main.match(/function endGame\(\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+
+  assert.match(endGame, /rankedStartButton\.hidden = true;/);
+  assert.match(endGame, /rankingButton\.hidden = true;/);
+});
+
+test('모바일 Chrome의 freeze·resume·focus 생명주기에서도 게임을 안전하게 중단하고 복귀시킨다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+
+  assert.match(main, /document\.addEventListener\('freeze', pauseForInterruption\)/);
+  assert.match(main, /document\.addEventListener\('resume', requestResumeAfterInterruption\)/);
+  assert.match(main, /window\.addEventListener\('focus', requestResumeAfterInterruption\)/);
+});
+
 test('게임 방법은 홈에 있고 게임 중단 팝업에는 계속하기와 홈만 제공한다', async () => {
   const [html, main] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),

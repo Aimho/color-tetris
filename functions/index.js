@@ -214,9 +214,31 @@ export const getRankedEnergy = onCall(OPTIONS, async request => {
 export const getOrCreatePlayerProfile = onCall(OPTIONS, async request => {
   const uid = requireUid(request);
   const profile = await getOrCreateProfile(uid);
-  await syncClosedSeasonBadges(uid, profile);
+  await Promise.all([
+    syncCurrentRankingNames(uid, profile.nickname),
+    syncClosedSeasonBadges(uid, profile),
+  ]);
   return serializePlayerProfile((await db.doc(`player_profiles/${uid}`).get()).data());
 });
+
+function currentSeasonScoreRefs(uid, season = getKstSeason()) {
+  return [
+    db.doc(`season_rankings/${season}_mobile/scores/${uid}`),
+    db.doc(`season_rankings/${season}_desktop/scores/${uid}`),
+  ];
+}
+
+async function syncCurrentRankingNames(uid, nickname) {
+  const scoreRefs = currentSeasonScoreRefs(uid);
+  const snapshots = await Promise.all(scoreRefs.map(scoreRef => scoreRef.get()));
+  const changed = snapshots
+    .map((snapshot, index) => ({snapshot, ref:scoreRefs[index]}))
+    .filter(({snapshot}) => snapshot.exists && snapshot.data().name !== nickname);
+  if (!changed.length) return;
+  const batch = db.batch();
+  changed.forEach(({ref}) => batch.update(ref, {name:nickname, updatedAt:FieldValue.serverTimestamp()}));
+  await batch.commit();
+}
 
 async function getOrCreateProfile(uid) {
   const profileRef = db.doc(`player_profiles/${uid}`);
@@ -255,18 +277,21 @@ export const updatePlayerNickname = onCall(OPTIONS, async request => {
   const uid = requireUid(request);
   const nickname = normalizeNickname(request.data?.nickname);
   if (!nickname) throw new HttpsError('invalid-argument', '닉네임은 한글·영문·숫자로 2~12자까지 입력해주세요.');
+  const now = Timestamp.now();
+  const season = getKstSeason(now.toDate());
   const profileRef = db.doc(`player_profiles/${uid}`);
   const reservationRef = db.doc(`nickname_reservations/${nicknameReservationId(nickname)}`);
+  const currentScoreRefs = currentSeasonScoreRefs(uid, season);
 
   const updated = await db.runTransaction(async transaction => {
-    const [profileSnapshot, reservationSnapshot] = await Promise.all([
+    const [profileSnapshot, reservationSnapshot, ...scoreSnapshots] = await Promise.all([
       transaction.get(profileRef),
       transaction.get(reservationRef),
+      ...currentScoreRefs.map(scoreRef => transaction.get(scoreRef)),
     ]);
     if (!profileSnapshot.exists) throw new HttpsError('failed-precondition', '프로필을 먼저 불러와주세요.');
     const profile = profileSnapshot.data();
     if (nicknameReservationId(profile.nickname) === nicknameReservationId(nickname)) return profile;
-    const now = Timestamp.now();
     const change = canChangeNickname({
       isCustom:profile.isCustom,
       lastNicknameChangeAtMs:profile.lastNicknameChangeAt?.toMillis?.() || 0,
@@ -288,6 +313,9 @@ export const updatePlayerNickname = onCall(OPTIONS, async request => {
       updatedAt:now,
     };
     transaction.set(profileRef, nextProfile);
+    scoreSnapshots.forEach((snapshot, index) => {
+      if (snapshot.exists) transaction.update(currentScoreRefs[index], {name:nickname, updatedAt:now});
+    });
     return nextProfile;
   });
   return serializePlayerProfile(updated);

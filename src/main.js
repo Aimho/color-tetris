@@ -1388,6 +1388,7 @@ function endGame() {
   });
   renderGameResult(currentGameResult);
   startButton.hidden = true;
+  rankedStartButton.hidden = true;
   shareButton.hidden = false;
   homeButton.hidden = false;
   rankingButton.hidden = true;
@@ -1419,16 +1420,18 @@ function renderGameResult(result) {
 }
 
 async function submitCompletedRankedRun(resultRunId, finalScore, finalLevel) {
-  if (!rankedSession || !completedRunLedger) return;
+  const session = rankedSession;
+  const ledger = completedRunLedger;
+  if (!session || !ledger) return;
   let nextResult;
   try {
     const [{submitRankedRun}, {loadTopScores}] = await Promise.all([
       import('./ranked-service.js'),
       getLeaderboardApi(),
     ]);
-    const submission = await submitRankedRun(rankedSession.runId, completedRunLedger);
+    const submission = await submitRankedRun(session.runId, ledger);
     updateRankedEnergy(submission.energy);
-    const leaderboard = await loadTopScores(runPlatform, rankedSession.season).catch(() => null);
+    const leaderboard = await loadTopScores(session.platform, session.season).catch(() => null);
     nextResult = createGameResult({
       ranked:true,
       score:finalScore,
@@ -1438,10 +1441,10 @@ async function submitCompletedRankedRun(resultRunId, finalScore, finalLevel) {
     });
   } catch (error) {
     captureClientError('ranked-submit', error, {
-      platform:runPlatform,
-      season:rankedSession?.season,
-      ruleVersion:completedRunLedger?.ruleVersion,
-      piecesPlaced:completedRunLedger?.piecesPlaced,
+      platform:session.platform,
+      season:session.season,
+      ruleVersion:ledger.ruleVersion,
+      piecesPlaced:ledger.piecesPlaced,
     });
     nextResult = createGameResult({
       ranked:true,
@@ -2031,11 +2034,14 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) pauseForInterruption();
   else requestResumeAfterInterruption();
 });
+document.addEventListener('freeze', pauseForInterruption);
+document.addEventListener('resume', requestResumeAfterInterruption);
 window.addEventListener('pagehide', () => {
   persistCurrentRun();
   pauseForInterruption();
 });
 window.addEventListener('pageshow', requestResumeAfterInterruption);
+window.addEventListener('focus', requestResumeAfterInterruption);
 resumeButton.addEventListener('click', continueAfterInterruption);
 resumeDiscardButton.addEventListener('click', discardSavedRun);
 
