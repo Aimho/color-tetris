@@ -158,6 +158,7 @@ let serverProfile = null;
 let currentGameResult = null;
 let rankedEnergyClock = null;
 const rankedStartGuard = createOperationGuard();
+const e2eMode = import.meta.env.VITE_E2E === 'true';
 
 buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 settingsVersion.textContent = `COLOR BOMB · VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
@@ -2110,11 +2111,13 @@ canvas.addEventListener('lostpointercapture',()=>{ gestureStart=null; });
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
 syncSettingsForm(); draw(); drawRacks(); updateStats(); updateReactor(); applyProfileTheme(); renderLocalProfile();
 setInterval(renderRankedEnergy, 1000);
-refreshRankedAvailability();
-import('./profile-service.js')
-  .then(({loadPlayerProfile}) => loadPlayerProfile())
-  .then(nextProfile => renderServerProfile(nextProfile))
-  .catch(() => {});
+if (!e2eMode) {
+  refreshRankedAvailability();
+  import('./profile-service.js')
+    .then(({loadPlayerProfile}) => loadPlayerProfile())
+    .then(nextProfile => renderServerProfile(nextProfile))
+    .catch(() => {});
+}
 const savedRun = readRunSnapshot();
 if (savedRun) restoreRun(savedRun);
 setupPwa();

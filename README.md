@@ -163,12 +163,14 @@ npm run dev
 
 ```bash
 npm test
+npm run test:e2e:install
+npm run test:e2e
 npm run test:rules
 npm run build
 npm run preview
 ```
 
-일반 테스트는 입력, 오디오, 난이도, 조각 생성, 화살표 효과, 음악, 최고 점수 처리 및 진행 시스템을 검증합니다. `test:rules`는 Firebase Emulator를 실행해 Firestore 인증, 소유권, 최고 점수 갱신 규칙을 검증합니다.
+일반 테스트는 입력, 오디오, 난이도, 조각 생성, 화살표 효과, 음악, 최고 점수 처리 및 진행 시스템을 검증합니다. Playwright E2E 테스트는 Desktop Chrome, Pixel 5, iPhone SE, iPhone 12, iPad Mini 환경에서 연습 모드, 일시정지·복귀, 터치 입력과 반응형 UI를 검증합니다. 실패 시 `playwright-report/`와 `test-results/`에서 HTML 리포트, 스크린샷, 영상과 Trace를 확인할 수 있습니다. `test:rules`는 Firebase Emulator를 실행해 Firestore 인증, 소유권, 최고 점수 갱신 규칙을 검증합니다.
 
 ## Firebase 배포
 
@@ -220,6 +222,7 @@ src/
 └── style.css        # 반응형 게임 UI
 
 test/                # Node.js 단위 및 회귀 테스트
+e2e/                 # Playwright 기기별 가상 사용자 테스트
 public/              # 아이콘, OG 이미지, 매니페스트, Service Worker
 ```
 
