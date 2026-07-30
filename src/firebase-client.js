@@ -26,7 +26,7 @@ export async function ensureAuthUser() {
   return authPromise;
 }
 
-const appCheckSiteKey = import.meta.env?.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY;
+const appCheckSiteKey = String(import.meta.env?.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY || '').trim();
 export const appCheck = appCheckSiteKey
   ? initializeAppCheck(app, {
       provider:new ReCaptchaEnterpriseProvider(appCheckSiteKey),
