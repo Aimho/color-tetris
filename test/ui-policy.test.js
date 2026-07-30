@@ -12,6 +12,12 @@ test('랭킹 초기 상태는 준비 중 대신 로딩 중으로 안내한다', 
   assert.doesNotMatch(`${html}\n${main}`, /랭킹 준비 중/);
 });
 
+test('에너지 응답이 없으면 충전 중으로 오인시키지 않는다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /status\.energy\s*\?\s*'에너지 충전 중 <span>⚡<\/span>'\s*:\s*'랭킹 점검 중 <span>◆<\/span>'/);
+  assert.match(main, /랭킹 연결 실패 <span>◆<\/span>/);
+});
+
 test('랭킹 도전은 Google 연결을 강제하지 않고 익명 UID를 사용한다', async () => {
   const [client, server] = await Promise.all([
     readFile(new URL('../src/ranked-service.js', import.meta.url), 'utf8'),

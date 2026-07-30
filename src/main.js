@@ -324,10 +324,13 @@ async function refreshRankedAvailability() {
     rankedStartButton.disabled = !status.ready;
     rankedStartButton.innerHTML = status.ready
       ? '랭킹 도전 <span>◆</span>'
-      : '에너지 충전 중 <span>⚡</span>';
+      : status.energy
+        ? '에너지 충전 중 <span>⚡</span>'
+        : '랭킹 점검 중 <span>◆</span>';
     rankedStartButton.title = status.reason;
   } catch {
     rankedStartButton.disabled = true;
+    rankedStartButton.innerHTML = '랭킹 연결 실패 <span>◆</span>';
     rankedStartButton.title = '랭킹 서버에 연결할 수 없습니다.';
   }
 }
