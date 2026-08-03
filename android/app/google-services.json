@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "138832269891-f9s1rindga8pk3fsu8qg2k83j1rpacpf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aimho.games.colorbomb",
+            "certificate_hash": "308b2ed9a6c89850e5cfa0ad88e76f268b0c6f8f"
+          }
+        },
+        {
           "client_id": "138832269891-g53p4kqhbt0s2is68lsi6jojog9j6c76.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
