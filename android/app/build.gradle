@@ -1,5 +1,27 @@
 apply plugin: 'com.android.application'
 
+def uploadStoreFile = System.getenv('COLOR_BOMB_UPLOAD_STORE_FILE')
+def uploadStorePassword = System.getenv('COLOR_BOMB_UPLOAD_STORE_PASSWORD')
+def uploadKeyAlias = System.getenv('COLOR_BOMB_UPLOAD_KEY_ALIAS')
+def uploadKeyPassword = System.getenv('COLOR_BOMB_UPLOAD_KEY_PASSWORD')
+def hasUploadSigning = [
+    uploadStoreFile,
+    uploadStorePassword,
+    uploadKeyAlias,
+    uploadKeyPassword
+].every { value -> value != null && !value.isBlank() }
+def signedReleaseRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.tokenize(':').last().toLowerCase() in ['assemblerelease', 'bundlerelease']
+}
+
+if (signedReleaseRequested && !hasUploadSigning) {
+    throw new GradleException(
+        'Release tasks require COLOR_BOMB_UPLOAD_STORE_FILE, ' +
+        'COLOR_BOMB_UPLOAD_STORE_PASSWORD, COLOR_BOMB_UPLOAD_KEY_ALIAS, and ' +
+        'COLOR_BOMB_UPLOAD_KEY_PASSWORD.'
+    )
+}
+
 android {
     namespace "com.aimho.games.colorbomb"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +29,8 @@ android {
         applicationId "com.aimho.games.colorbomb"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 4
+        versionName "0.4.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +38,24 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasUploadSigning) {
+            release {
+                storeFile file(uploadStoreFile)
+                storePassword uploadStorePassword
+                keyAlias uploadKeyAlias
+                keyPassword uploadKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasUploadSigning) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }

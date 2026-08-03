@@ -24,7 +24,11 @@ import {
   nicknameReservationId,
   normalizeNickname,
 } from './profile-core.js';
-import { createSeasonBadgeIds, getUnprocessedClosedSeasons } from './shared/season-badges.js';
+import {
+  appendSeasonResult,
+  createSeasonBadgeIds,
+  getUnprocessedClosedSeasons,
+} from './shared/season-badges.js';
 
 initializeApp();
 const db = getFirestore();
@@ -368,12 +372,13 @@ function serializePlayerProfile(profile) {
     nextNicknameChangeAt:change.nextChangeAt,
     canChangeNickname:change.allowed,
     seasonBadges:Array.isArray(profile.seasonBadges) ? profile.seasonBadges : [],
+    seasonResults:Array.isArray(profile.seasonResults) ? profile.seasonResults : [],
   };
 }
 
 async function syncClosedSeasonBadges(uid, profile) {
   const profileRef = db.doc(`player_profiles/${uid}`);
-  const season = await db.runTransaction(async transaction => {
+  const claim = await db.runTransaction(async transaction => {
     const snapshot = await transaction.get(profileRef);
     const currentProfile = snapshot.data() || profile;
     const now = Timestamp.now();
@@ -388,15 +393,23 @@ async function syncClosedSeasonBadges(uid, profile) {
       badgeProcessingSeason:nextSeason,
       badgeProcessingUntil:Timestamp.fromMillis(now.toMillis() + 60_000),
     });
-    return nextSeason;
+    return {
+      season:nextSeason,
+      seasonResults:Array.isArray(currentProfile.seasonResults) ? currentProfile.seasonResults : [],
+    };
   });
-  if (!season) return;
+  if (!claim) return;
+  const {season, seasonResults} = claim;
   try {
     const badges = [];
+    const platforms = {};
     for (const platform of ['mobile', 'desktop']) {
       const scores = db.collection(`season_rankings/${season}_${platform}/scores`);
       const ownScore = await scores.doc(uid).get();
-      if (!ownScore.exists) continue;
+      if (!ownScore.exists) {
+        platforms[platform] = null;
+        continue;
+      }
       const top = await scores
         .orderBy('score', 'desc')
         .orderBy('level', 'desc')
@@ -404,11 +417,18 @@ async function syncClosedSeasonBadges(uid, profile) {
         .limit(50)
         .get();
       const rank = top.docs.findIndex(score => score.id === uid) + 1;
+      const ownRecord = ownScore.data();
+      platforms[platform] = {
+        score:Number(ownRecord.score || 0),
+        level:Number(ownRecord.level || 1),
+        rank,
+      };
       badges.push(...createSeasonBadgeIds(season, platform, rank, true));
     }
     await profileRef.update({
       badgeSeasonsProcessed:FieldValue.arrayUnion(season),
       ...(badges.length ? {seasonBadges:FieldValue.arrayUnion(...badges)} : {}),
+      seasonResults:appendSeasonResult(seasonResults, {season, platforms}),
       badgeProcessingSeason:FieldValue.delete(),
       badgeProcessingUntil:FieldValue.delete(),
       updatedAt:FieldValue.serverTimestamp(),

@@ -193,7 +193,10 @@ firebase deploy --only firestore,hosting --project color-tetrix-aimho
 
 현재 Vite 웹 앱을 그대로 빌드한 뒤 Capacitor의 iOS `WKWebView`와 Android WebView로 감싸는 구조입니다. 게임 로직과 Canvas UI는 웹과 앱이 공유하며, 네이티브 프로젝트는 전체 화면, 방향 고정, 상태 표시줄, 앱 수명주기와 스토어 패키징을 담당합니다.
 
-앱 ID는 iOS와 Android 모두 `com.aimho.games.colorbomb`을 사용합니다. `ios/`와 `android/` 네이티브 프로젝트가 생성되어 있으며, 스토어 서명용 바이너리는 아직 배포하지 않습니다.
+앱 ID는 iOS와 Android 모두 `com.aimho.games.colorbomb`을 사용합니다. `ios/`와
+`android/` 네이티브 프로젝트가 생성되어 있으며, Android 최소 버전은
+Android 9(API 28), 대상 버전은 Android 16(API 36)입니다. 스토어 서명용
+바이너리는 아직 배포하지 않습니다.
 
 ```bash
 npm run cap:sync
@@ -208,6 +211,17 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App \
 ```
 
 네이티브 런타임에서는 Service Worker를 등록하지 않고 번들된 파일을 직접 로드합니다. iOS Simulator와 Android Emulator에서 설치·실행을 검증했으며, 구형 Android WebView를 위해 핵심 UI 색상에는 HEX 대체값을 제공합니다. 스토어 제출 전에는 iOS·Android 실기기 오디오 및 백그라운드 복귀, 세로 방향 고정, Android 뒤로 가기, 앱 아이콘과 스플래시 화면을 최종 검증해야 합니다. 각 플랫폼의 개발자 계정, 앱 서명과 심사 메타데이터도 별도로 준비해야 합니다.
+
+Android Release 빌드는 앱 버전 `0.4.0`(`versionCode 4`)을 사용하고 R8 코드
+최적화와 리소스 축소를 적용합니다. 업로드 키와 비밀번호는 Git에 저장하지
+않고 반드시 저장소 외부에 보관하며 다음 환경변수로 주입합니다. Release
+`assembleRelease`와 `bundleRelease` 작업은 네 변수가 하나라도 없으면 즉시
+실패합니다.
+
+- `COLOR_BOMB_UPLOAD_STORE_FILE`
+- `COLOR_BOMB_UPLOAD_STORE_PASSWORD`
+- `COLOR_BOMB_UPLOAD_KEY_ALIAS`
+- `COLOR_BOMB_UPLOAD_KEY_PASSWORD`
 
 ## 프로젝트 구조
 

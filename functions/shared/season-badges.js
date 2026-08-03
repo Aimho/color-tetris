@@ -28,6 +28,21 @@ export function createSeasonBadgeIds(season, platform, rank, hasRecord = true) {
   return badges;
 }
 
+export function appendSeasonResult(results, nextResult, limit = 24) {
+  const validSeason = value => /^\d{4}-(0[1-9]|1[0-2])$/.test(value || '');
+  const bySeason = new Map(
+    (Array.isArray(results) ? results : [])
+      .filter(result => validSeason(result?.season))
+      .map(result => [result.season, result]),
+  );
+  if (validSeason(nextResult?.season)) {
+    bySeason.set(nextResult.season, nextResult);
+  }
+  return [...bySeason.values()]
+    .sort((a, b) => a.season.localeCompare(b.season))
+    .slice(-Math.max(1, limit));
+}
+
 export function formatSeasonBadge(badgeId) {
   const [season, platform, tier] = String(badgeId || '').split(':');
   if (!/^\d{4}-\d{2}$/.test(season) || !['mobile', 'desktop'].includes(platform)) return '';

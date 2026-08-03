@@ -1,8 +1,8 @@
 # 후속 작업
 
-최종 갱신: 2026-07-26
+최종 갱신: 2026-07-28
 
-## 우선순위 1: 시즌 결과 넛징
+## 완료: 시즌 결과 넛징
 
 - 시즌 종료와 제출 유예 24시간이 지난 뒤 홈에 `지난 시즌 결과가 도착했어요!` 배너를 한 번 표시한다.
 - 배너의 `결과 보기`를 누르면 마이페이지를 열고 미처리 시즌 배지를 확정한다.
@@ -20,15 +20,18 @@
 
 ## 우선순위 3: 검증 환경 정리
 
-- 로컬 JDK를 Java 21 이상으로 올린다.
-- `npm run test:rules`로 Firestore 보안 규칙 에뮬레이터 테스트를 다시 실행한다.
+- 시스템과 Android 빌드 기본 Java를 Java 21로 전환했다.
+- `npm run test:rules`로 Firestore 보안 규칙 에뮬레이터 테스트 6개를 통과했다.
 - Firebase App Check 실패율, Functions 호출 수와 Firestore 읽기 수를 모니터링한다.
 - 익명 UID 재생성으로 랭킹 에너지 제한을 우회하는 비정상 패턴을 관찰한다.
 
 ## 우선순위 4: Android 앱 출시 재개
 
-- 실제 소스 경로를 `/Users/aimho/Desktop/workspace/color-tetris`로 확정한다.
-- Capacitor Android 프로젝트와 `com.aimho.games.colorbomb` 앱 ID를 생성한다.
+- 실제 소스 경로를 `/Users/aimho/Desktop/workspace/color-tetris`로 확정했다.
+- Capacitor Android 프로젝트와 `com.aimho.games.colorbomb` 앱 ID를 생성했다.
+- Android 9(API 28) 최소, Android 16(API 36) 대상, 세로 고정 설정과 디버그 APK 빌드를 확인했다.
+- AGP 8.10.1, Gradle 8.11.1과 Java 21 조합으로 API 36 공식 지원 빌드를 확인했다.
+- 버전 `0.4.0`(`versionCode 4`), 환경변수 기반 업로드 서명과 R8 Release 설정을 구성했다.
 - Android 9 이상 실기기에서 20분 이상 입력·오디오·발열·백그라운드 복귀를 확인한다.
 - 앱 아이콘, 스플래시, 스토어 설명, 공개 고객지원 이메일과 개인정보처리방침을 확정한다.
 - 내부 테스트 후 12명 이상 비공개 테스트를 14일 이상 진행한다.

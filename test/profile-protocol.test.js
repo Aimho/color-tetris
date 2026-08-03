@@ -8,6 +8,7 @@ import {
   normalizeNickname,
 } from '../functions/shared/profile-protocol.js';
 import {
+  appendSeasonResult,
   createSeasonBadgeIds,
   formatSeasonBadge,
   getUnprocessedClosedSeasons,
@@ -63,4 +64,18 @@ test('시즌 기록과 최종 순위는 중복 없는 배지 ID로 표현한다'
     '2026-06:desktop:best',
   ]);
   assert.equal(formatSeasonBadge('2026-06:mobile:top10'), '2026-06 · MOBILE TOP 10');
+});
+
+test('시즌 결과는 중복 없이 최근 24개만 유지한다', () => {
+  const results = Array.from({length:24}, (_, index) => {
+    const date = new Date(Date.UTC(2024, index, 1));
+    return {season:`${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`};
+  });
+  const next = {season:'2026-01', platforms:{mobile:null, desktop:null}};
+  const bounded = appendSeasonResult(results, next);
+
+  assert.equal(bounded.length, 24);
+  assert.equal(bounded[0].season, '2024-02');
+  assert.equal(bounded.at(-1), next);
+  assert.equal(appendSeasonResult(bounded, next).length, 24);
 });

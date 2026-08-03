@@ -27,6 +27,12 @@ import { setupPwa } from './pwa.js';
 import { createGameResult, createShareText } from './game-result.js';
 import { captureClientError, initializeSentry } from './sentry.js';
 import {
+  acknowledgeSeasonResult,
+  formatSeasonResultSummary,
+  pendingSeasonResult,
+  shouldShowSeasonResult,
+} from './season-result.js';
+import {
   dragSensitivityScale,
   particleScale,
   readSettings,
@@ -97,6 +103,10 @@ const rankedEnergyActions = document.querySelector('#rankedEnergyActions');
 const homeHelpButton = document.querySelector('#homeHelpButton');
 const pauseButton = document.querySelector('#pauseButton');
 const profileButton = document.querySelector('#profileButton');
+const profileNotificationDot = document.querySelector('#profileNotificationDot');
+const seasonResultNudge = document.querySelector('#seasonResultNudge');
+const seasonResultSummary = document.querySelector('#seasonResultSummary');
+const seasonResultButton = document.querySelector('#seasonResultButton');
 const settingsButton = document.querySelector('#settingsButton');
 const profilePanel = document.querySelector('#profilePanel');
 const settingsPanel = document.querySelector('#settingsPanel');
@@ -251,6 +261,36 @@ function renderServerProfile(nextProfile) {
   rememberPlayerName(nextProfile.nickname);
 }
 
+function renderSeasonResultNudge(nextProfile) {
+  const visible = shouldShowSeasonResult(nextProfile);
+  seasonResultNudge.hidden = !visible;
+  profileNotificationDot.hidden = !visible;
+  profileButton.setAttribute(
+    'aria-label',
+    visible ? '마이페이지 열기, 확인하지 않은 시즌 결과 있음' : '마이페이지 열기',
+  );
+  if (visible) {
+    seasonResultSummary.textContent = formatSeasonResultSummary(pendingSeasonResult(nextProfile));
+  }
+}
+
+function acknowledgeCurrentSeasonResult() {
+  if (!serverProfile || !acknowledgeSeasonResult(serverProfile)) return;
+  renderSeasonResultNudge(serverProfile);
+}
+
+async function refreshSeasonResultNudge() {
+  try {
+    const {loadPlayerProfile} = await import('./profile-service.js');
+    const nextProfile = await loadPlayerProfile();
+    renderServerProfile(nextProfile);
+    renderSeasonResultNudge(nextProfile);
+  } catch {
+    seasonResultNudge.hidden = true;
+    profileNotificationDot.hidden = true;
+  }
+}
+
 async function loadProfilePanel() {
   renderLocalProfile();
   profileStatus.textContent = '프로필과 시즌 기록을 불러오는 중…';
@@ -289,12 +329,14 @@ async function loadProfilePanel() {
     profile.lastSyncedAt = Date.now();
     try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
     profileStatus.textContent = `로컬 기록 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')} 동기화`;
+    return true;
   } catch {
     profileNickname.textContent = savedPlayerName() || '게스트 플레이어';
     profileConnection.textContent = '오프라인 · 로컬 기록 표시 중';
     profileStatus.textContent = profile.lastSyncedAt
       ? `마지막 동기화 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')}`
       : '서버 프로필에 연결하지 못했습니다. 로컬 기록은 계속 사용할 수 있습니다.';
+    return false;
   }
 }
 
@@ -1844,6 +1886,10 @@ profileButton.addEventListener('click', () => {
   openAppPanel(profilePanel, profileButton);
   loadProfilePanel();
 });
+seasonResultButton.addEventListener('click', async () => {
+  openAppPanel(profilePanel, profileButton);
+  if (await loadProfilePanel()) acknowledgeCurrentSeasonResult();
+});
 settingsButton.addEventListener('click', () => {
   syncSettingsForm();
   openAppPanel(settingsPanel, settingsButton);
@@ -1905,6 +1951,7 @@ resetLocalDataButton.addEventListener('click', () => {
     'color-bomb-settings-v1',
     'color-tetrix-player-name',
     'color-tetrix-tutorial-seen',
+    'color-bomb-season-results-acknowledged-v1',
     'color-bomb-run-snapshot-v1',
     'color-bomb-pending-best-score-v1',
     'color-bomb-pending-ranked-run-v1',
@@ -2118,7 +2165,10 @@ if (!e2eMode) {
   refreshRankedAvailability();
   import('./profile-service.js')
     .then(({loadPlayerProfile}) => loadPlayerProfile())
-    .then(nextProfile => renderServerProfile(nextProfile))
+    .then(nextProfile => {
+      renderServerProfile(nextProfile);
+      renderSeasonResultNudge(nextProfile);
+    })
     .catch(() => {});
 }
 const savedRun = readRunSnapshot();

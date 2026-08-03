@@ -129,7 +129,6 @@ test('모바일 Chrome의 freeze·resume·focus 생명주기에서도 게임을 
   assert.match(main, /document\.addEventListener\('resume', requestResumeAfterInterruption\)/);
   assert.match(main, /window\.addEventListener\('focus', requestResumeAfterInterruption\)/);
 });
-
 test('게임 방법은 홈에 있고 게임 중단 팝업에는 계속하기와 홈만 제공한다', async () => {
   const [html, main] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),
@@ -137,6 +136,7 @@ test('게임 방법은 홈에 있고 게임 중단 팝업에는 계속하기와 
   ]);
   assert.match(html, /id="pauseButton"/);
   assert.match(html, /class="icon-button home-only-action" id="homeHelpButton"[^>]*aria-label="게임 방법 열기"/);
+  assert.equal(html.match(/id="homeHelpButton"/g)?.length, 1);
   assert.ok(html.indexOf('id="homeHelpButton"') < html.indexOf('id="profileButton"'));
   assert.ok(html.indexOf('id="profileButton"') < html.indexOf('id="settingsButton"'));
   assert.match(main, /homeHelpButton\.addEventListener\('click', \(\) => openTutorial\(false\)\)/);
@@ -144,6 +144,15 @@ test('게임 방법은 홈에 있고 게임 중단 팝업에는 계속하기와 
   assert.match(html, /id="reactorHudValue">0%/);
   assert.doesNotMatch(html, /id="helpButton"|id="soundButton"|id="chain"|id="runModeStatus"/);
   assert.doesNotMatch(`${html}\n${main}`, /reactorInstruction|POWER \$\{reactorPower\}/);
+});
+
+test('시즌 결과는 명시적으로 열고 프로필 로딩에 성공한 뒤에만 확인 처리한다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  const profileHandler = main.match(/profileButton\.addEventListener[\s\S]*?\n\}\);/)?.[0] ?? '';
+  const seasonHandler = main.match(/seasonResultButton\.addEventListener[\s\S]*?\n\}\);/)?.[0] ?? '';
+
+  assert.doesNotMatch(profileHandler, /acknowledgeCurrentSeasonResult/);
+  assert.match(seasonHandler, /if \(await loadProfilePanel\(\)\) acknowledgeCurrentSeasonResult\(\)/);
 });
 
 test('그래픽 테마는 가로 스크롤 카드로 선택한다', async () => {

@@ -35,7 +35,10 @@
         </div>
         <div class="header-actions">
           <button class="icon-button home-only-action" id="homeHelpButton" type="button" aria-label="게임 방법 열기">?</button>
-          <button class="icon-button home-only-action" id="profileButton" aria-label="마이페이지 열기">◎</button>
+          <button class="icon-button home-only-action profile-button" id="profileButton" aria-label="마이페이지 열기">
+            <span aria-hidden="true">◎</span>
+            <i class="profile-notification-dot" id="profileNotificationDot" aria-hidden="true" hidden></i>
+          </button>
           <button class="icon-button home-only-action" id="settingsButton" aria-label="설정 열기">⚙</button>
           <button class="icon-button playing-only-action" id="pauseButton" aria-label="게임 일시정지">Ⅱ</button>
         </div>
@@ -103,6 +106,14 @@
                 <button type="button" disabled title="앱 출시 후 이용할 수 있습니다.">광고 보고 +1</button>
                 <button type="button" disabled title="앱 출시 후 이용할 수 있습니다.">에너지 충전</button>
               </div>
+            </section>
+            <section class="season-result-nudge" id="seasonResultNudge" aria-labelledby="seasonResultNudgeTitle" hidden>
+              <div>
+                <p>SEASON REPORT</p>
+                <strong id="seasonResultNudgeTitle">지난 시즌 결과가 도착했어요!</strong>
+                <small id="seasonResultSummary"></small>
+              </div>
+              <button id="seasonResultButton" type="button">결과 보기 <span>↗</span></button>
             </section>
             <div class="end-actions">
               <button id="startButton" data-game-mode="practice">연습하기 <span>▶</span></button>

@@ -10,3 +10,7 @@ test-results/
 .env
 .env.local
 .env.*.local
+*.jks
+*.keystore
+*.p12
+*.pfx
