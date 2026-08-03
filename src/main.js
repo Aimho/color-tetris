@@ -91,7 +91,6 @@ const homeLeaderboardList = document.querySelector('#homeLeaderboardList');
 const rankingButton = document.querySelector('#rankingButton');
 const rankingCloseButton = document.querySelector('#rankingCloseButton');
 const rankingMyBest = document.querySelector('#rankingMyBest');
-const rankingPlatformTabs = [...document.querySelectorAll('[data-ranking-platform]')];
 const buildVersion = document.querySelector('#buildVersion');
 const shareButton = document.querySelector('#shareButton');
 const homeButton = document.querySelector('#homeButton');
@@ -123,6 +122,8 @@ const openControlsButton = document.querySelector('#openControlsButton');
 const resetLocalDataButton = document.querySelector('#resetLocalDataButton');
 const settingsVersion = document.querySelector('#settingsVersion');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+const isNativeApp = globalThis.Capacitor?.isNativePlatform?.() === true;
+const androidStoreUrl = String(import.meta.env.VITE_ANDROID_STORE_URL || '').trim();
 const reducedMotionMedia = matchMedia('(prefers-reduced-motion: reduce)');
 
 let board, eventBoard, active, queue, hold, holdUsed, score, level, lines, running, paused;
@@ -143,12 +144,10 @@ let reactorRenderKey = '';
 let animationFrameId = null;
 let gameMode = GAME_MODES.PRACTICE;
 const inputPlatform = detectPlatform({
-  native:globalThis.Capacitor?.isNativePlatform?.() === true,
-  coarsePointer:isTouchDevice,
-  touchPoints:navigator.maxTouchPoints,
+  native:isNativeApp,
 });
 let runPlatform = inputPlatform;
-const rankedRuntimePlatform = inputPlatform;
+const rankedRuntimePlatform = 'app';
 initializeSentry({
   release:`${__APP_VERSION__}-${__BUILD_ID__}`,
   platform:inputPlatform,
@@ -161,7 +160,6 @@ let rankedSession = null;
 let pendingRankedSession = null;
 let rankedRandomCalls = 0;
 let pieceSerialCounter = 0;
-let rankingPlatform = rankedRuntimePlatform;
 let settings = readSettings();
 let prefersReducedMotion = shouldReduceMotion();
 let serverProfile = null;
@@ -301,7 +299,7 @@ async function loadProfilePanel() {
     ]);
     const nextProfile = await loadPlayerProfile();
     renderServerProfile(nextProfile);
-    const platforms = ['mobile', 'desktop'];
+    const platforms = ['app'];
     const results = await Promise.allSettled(platforms.map(platform => loadTopScores(platform)));
     const badges = (nextProfile.seasonBadges || []).map(formatSeasonBadge).filter(Boolean);
     results.forEach((result, index) => {
@@ -317,9 +315,9 @@ async function loadProfilePanel() {
       const rank = entries.findIndex(entry => entry.playerId === myBest.playerId) + 1;
       scoreElement.textContent = myBest.score.toLocaleString();
       levelElement.textContent = `${rank ? `#${rank}` : 'TOP 50 밖'} · LV ${myBest.level}`;
-      if (rank === 1) badges.push(`${platform.toUpperCase()} TOP 1`);
-      else if (rank > 0 && rank <= 10) badges.push(`${platform.toUpperCase()} TOP 10`);
-      else if (rank > 0 && rank <= 50) badges.push(`${platform.toUpperCase()} TOP 50`);
+      if (rank === 1) badges.push('TOP 1');
+      else if (rank > 0 && rank <= 10) badges.push('TOP 10');
+      else if (rank > 0 && rank <= 50) badges.push('TOP 50');
     });
     document.querySelector('#profileBadges').replaceChildren(...badges.map(label => {
       const badge = document.createElement('span');
@@ -357,6 +355,18 @@ function closeAppPanel(panel) {
 }
 
 async function refreshRankedAvailability() {
+  if (!isNativeApp) {
+    rankedEnergyPanel.hidden = true;
+    rankedStartButton.disabled = false;
+    rankedStartButton.innerHTML = androidStoreUrl
+      ? '앱에서 랭킹 도전 <span>↗</span>'
+      : '앱 출시 준비 중 <span>◆</span>';
+    rankedStartButton.title = androidStoreUrl
+      ? '앱을 설치하고 랭킹에 도전하세요.'
+      : '앱스토어 출시 후 랭킹 도전을 이용할 수 있습니다.';
+    return;
+  }
+  rankedEnergyPanel.hidden = false;
   rankedStartButton.disabled = true;
   rankedStartButton.innerHTML = '로딩 중… <span>◆</span>';
   try {
@@ -1734,15 +1744,10 @@ function showLeaderboardSkeleton(targetList) {
 }
 
 async function refreshLeaderboard(targetList = homeLeaderboardList) {
-  rankingPlatformTabs.forEach(tab => {
-    const selected = tab.dataset.rankingPlatform === rankingPlatform;
-    tab.setAttribute('aria-selected', String(selected));
-    tab.tabIndex = selected ? 0 : -1;
-  });
   showLeaderboardSkeleton(targetList);
   try {
     const { loadTopScores } = await getLeaderboardApi();
-    const result = await loadTopScores(rankingPlatform);
+    const result = await loadTopScores(rankedRuntimePlatform);
     const { entries, myBest, season } = result;
     if (targetList === homeLeaderboardList) {
       rankingMyBest.textContent = myBest
@@ -1774,7 +1779,6 @@ async function refreshLeaderboard(targetList = homeLeaderboardList) {
 }
 
 function openHomeRanking() {
-  rankingPlatform = rankedRuntimePlatform;
   overlay.classList.add('ranking-view');
   homeRanking.hidden = false;
   rankingCloseButton.focus();
@@ -1791,7 +1795,7 @@ async function shareGame() {
   const result = currentGameResult || createGameResult({ranked:false, score, level});
   const data = {
     title: 'COLOR BOMB',
-    text: createShareText(result, runPlatform === 'mobile' ? '모바일' : '데스크탑'),
+    text: createShareText(result, runPlatform === 'app' ? '앱' : '웹'),
     url,
   };
   try {
@@ -1840,6 +1844,15 @@ function act(action) {
 }
 
 async function startSelectedMode(mode) {
+  if (mode === GAME_MODES.RANKED && !isNativeApp) {
+    if (androidStoreUrl) {
+      window.location.assign(androidStoreUrl);
+    } else {
+      overlayCopy.textContent = '랭킹 도전은 앱스토어 출시 후 앱에서 이용할 수 있습니다.';
+      rankedStartButton.title = '앱스토어 출시를 준비하고 있습니다.';
+    }
+    return;
+  }
   const operation = rankedStartGuard.begin();
   unlockAudioSession();
   closeHomeRanking();
@@ -1858,7 +1871,7 @@ async function startSelectedMode(mode) {
         import('./ranked-service.js'),
         getLeaderboardApi(),
       ]);
-      const session = await startRankedRun({platform:inputPlatform});
+      const session = await startRankedRun();
       if (!rankedStartGuard.isCurrent(operation)) return;
       pendingRankedSession = session;
       updateRankedEnergy(session.energy);
@@ -1969,14 +1982,6 @@ reducedMotionMedia.addEventListener?.('change', () => {
 rankingCloseButton.addEventListener('click', () => {
   closeHomeRanking();
   rankingButton.focus();
-});
-rankingPlatformTabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    const platform = tab.dataset.rankingPlatform;
-    if (platform === rankingPlatform) return;
-    rankingPlatform = platform;
-    refreshLeaderboard(homeLeaderboardList);
-  });
 });
 shareButton.addEventListener('click', shareGame);
 document.querySelectorAll('[data-access-action]').forEach(button => {

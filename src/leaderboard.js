@@ -126,7 +126,7 @@ export async function submitScore(name, score, level) {
   }
 }
 
-export async function loadTopScores(platform = 'desktop', season = getKstSeason()) {
+export async function loadTopScores(platform = 'app', season = getKstSeason()) {
   const user = await ensureAuthUser();
   const seasonScores = collection(db, `season_rankings/${season}_${platform}/scores`);
   const [snapshot, mySnapshot] = await Promise.all([

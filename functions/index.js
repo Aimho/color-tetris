@@ -44,7 +44,7 @@ export const startRankedRun = onCall(OPTIONS, async request => {
   const uid = requireRankedUid(request);
   await getOrCreateProfile(uid);
   const requestId = normalizeRequestId(request.data?.requestId);
-  const platform = safeAppPlatform(request.app?.appId, request.data?.platform);
+  const platform = safeAppPlatform(request.app?.appId);
   const now = Timestamp.now();
   const nowDate = now.toDate();
   const day = getKstDay(nowDate);
@@ -88,6 +88,7 @@ export const startRankedRun = onCall(OPTIONS, async request => {
 });
 
 export const submitRankedRun = onCall(OPTIONS, async request => {
+  const platform = safeAppPlatform(request.app?.appId);
   const uid = requireRankedUid(request);
   const runId = String(request.data?.runId || '');
   const playerProfile = await getOrCreateProfile(uid);
@@ -100,6 +101,9 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
   const initialSnapshot = await runRef.get();
   if (!initialSnapshot.exists) throw new HttpsError('not-found', '랭킹 도전을 찾을 수 없습니다.');
   const initialRun = initialSnapshot.data();
+  if (initialRun.platform !== platform) {
+    throw new HttpsError('permission-denied', '사용할 수 없는 플랫폼의 도전입니다.');
+  }
   assertUsableRun(initialRun, uid);
     if (initialRun.status === 'accepted') {
       return {
@@ -208,6 +212,7 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
 });
 
 export const getRankedEnergy = onCall(OPTIONS, async request => {
+  safeAppPlatform(request.app?.appId);
   const uid = requireRankedUid(request);
   const now = Timestamp.now();
   const snapshot = await db.doc(`ranked_energy/${uid}`).get();
@@ -226,10 +231,7 @@ export const getOrCreatePlayerProfile = onCall(OPTIONS, async request => {
 });
 
 function currentSeasonScoreRefs(uid, season = getKstSeason()) {
-  return [
-    db.doc(`season_rankings/${season}_mobile/scores/${uid}`),
-    db.doc(`season_rankings/${season}_desktop/scores/${uid}`),
-  ];
+  return [db.doc(`season_rankings/${season}_app/scores/${uid}`)];
 }
 
 async function syncCurrentRankingNames(uid, nickname) {
@@ -403,7 +405,7 @@ async function syncClosedSeasonBadges(uid, profile) {
   try {
     const badges = [];
     const platforms = {};
-    for (const platform of ['mobile', 'desktop']) {
+    for (const platform of ['app']) {
       const scores = db.collection(`season_rankings/${season}_${platform}/scores`);
       const ownScore = await scores.doc(uid).get();
       if (!ownScore.exists) {
@@ -442,12 +444,13 @@ async function syncClosedSeasonBadges(uid, profile) {
   }
 }
 
-function safeAppPlatform(appId, requestedPlatform) {
-  const mobileAppIds = String(process.env.MOBILE_APP_IDS || '').split(',').filter(Boolean);
-  try { return platformForAppId(appId, mobileAppIds, requestedPlatform); }
+function safeAppPlatform(appId) {
+  const configuredAppIds = String(process.env.NATIVE_APP_IDS || '').split(',').filter(Boolean);
+  const nativeAppIds = ['1:138832269891:android:680c90029271687eadbaf6', ...configuredAppIds];
+  try { return platformForAppId(appId, nativeAppIds); }
   catch (error) {
-    if (error?.message === 'invalid-platform') {
-      throw new HttpsError('invalid-argument', '플랫폼 정보가 올바르지 않습니다.');
+    if (error?.message === 'web-ranking-disabled') {
+      throw new HttpsError('failed-precondition', '랭킹 도전은 앱에서만 이용할 수 있습니다.');
     }
     throw new HttpsError('failed-precondition', '등록되지 않은 앱입니다.');
   }

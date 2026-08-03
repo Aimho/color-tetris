@@ -17,12 +17,9 @@ export function getKstSeason(date = new Date()) {
   return getKstDay(date).slice(0, 7);
 }
 
-export function platformForAppId(appId, mobileAppIds = [], requestedPlatform = 'desktop') {
-  if (appId === WEB_APP_ID) {
-    if (!['mobile', 'desktop'].includes(requestedPlatform)) throw new Error('invalid-platform');
-    return requestedPlatform;
-  }
-  if (mobileAppIds.includes(appId)) return 'mobile';
+export function platformForAppId(appId, nativeAppIds = []) {
+  if (appId === WEB_APP_ID) throw new Error('web-ranking-disabled');
+  if (nativeAppIds.includes(appId)) return 'app';
   throw new Error('unknown-app');
 }
 

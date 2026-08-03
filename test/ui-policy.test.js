@@ -28,18 +28,27 @@ test('랭킹 도전은 Google 연결을 강제하지 않고 익명 UID를 사용
   assert.doesNotMatch(server, /sign_in_provider === 'anonymous'/);
 });
 
+test('Android Google 연결은 웹 팝업 대신 네이티브 ID 토큰을 기존 익명 계정에 연결한다', async () => {
+  const client = await readFile(new URL('../src/ranked-service.js', import.meta.url), 'utf8');
+  assert.match(client, /Capacitor\.getPlatform\(\) === 'android'/);
+  assert.match(client, /FirebaseAuthentication\.signInWithGoogle\(\{skipNativeAuth:true\}\)/);
+  assert.match(client, /GoogleAuthProvider\.credential\(idToken\)/);
+  assert.match(client, /linkWithCredential\(auth\.currentUser, credential\)/);
+  assert.match(client, /현재 랭킹 데이터를 보호하기 위해 계정을 전환하지 않았습니다/);
+  assert.doesNotMatch(client, /credential-already-in-use'[\s\S]{0,160}signInWithCredential/);
+});
+
 test('랭킹 시작 API는 기존 UUID 문자열 호출과 새 플랫폼 객체 호출을 모두 지원한다', async () => {
   const client = await readFile(new URL('../src/ranked-service.js', import.meta.url), 'utf8');
   assert.match(client, /export async function startRankedRun\(options = \{\}\)/);
   assert.match(client, /typeof options === 'string'\s*\? \{requestId:options\}/);
-  assert.match(client, /startRun\(\{requestId, platform\}\)/);
+  assert.match(client, /startRun\(\{requestId\}\)/);
 });
 
-test('홈 랭킹은 현재 기기의 터치 플랫폼 버킷을 기본 조회한다', async () => {
+test('홈 랭킹은 앱 랭킹 버킷만 조회한다', async () => {
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
-  assert.match(main, /const inputPlatform = detectPlatform\(/);
-  assert.match(main, /const rankedRuntimePlatform = inputPlatform;/);
-  assert.match(main, /function openHomeRanking\(\) \{\s*rankingPlatform = rankedRuntimePlatform;/);
+  assert.match(main, /const rankedRuntimePlatform = 'app';/);
+  assert.match(main, /loadTopScores\(rankedRuntimePlatform\)/);
 });
 
 test('저장된 게임을 버리고 홈으로 돌아오면 랭킹 버튼 상태를 다시 불러온다', async () => {
@@ -67,7 +76,7 @@ test('랭킹 도전을 누르면 서버 응답을 기다리는 동안 이전 보
   assert.ok(enterGameIndex < awaitRankedIndex);
   assert.ok(showLoadingIndex < awaitRankedIndex);
   assert.match(startSelectedMode, /Promise\.all\(\[\s*import\('\.\/ranked-service\.js'\),\s*getLeaderboardApi\(\),\s*\]\)/);
-  assert.match(startSelectedMode, /startRankedRun\(\{platform:inputPlatform\}\)/);
+  assert.match(startSelectedMode, /startRankedRun\(\)/);
   assert.match(main, /function reset[\s\S]*?setRankedLoading\(false\)/);
   assert.match(main, /function returnHome[\s\S]*?setRankedLoading\(false\)/);
 });
@@ -88,6 +97,16 @@ test('랭킹 기록의 이름은 클라이언트 입력이 아닌 예약 프로�
   assert.doesNotMatch(client, /submitRun\(\{runId,\s*name,/);
 });
 
+test('랭킹 제출도 등록된 네이티브 앱 플랫폼만 허용한다', async () => {
+  const server = await readFile(new URL('../functions/index.js', import.meta.url), 'utf8');
+  const submit = server.match(
+    /export const submitRankedRun = onCall\(OPTIONS, async request => \{([\s\S]*?)\n\}\);/,
+  )?.[1] ?? '';
+
+  assert.match(submit, /const platform = safeAppPlatform\(request\.app\?\.appId\)/);
+  assert.match(submit, /initialRun\.platform !== platform/);
+});
+
 test('랭킹 제출은 비동기 처리 중 초기화될 수 있는 전역 세션을 다시 읽지 않는다', async () => {
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   const submitCompletedRankedRun = main.match(
@@ -101,15 +120,14 @@ test('랭킹 제출은 비동기 처리 중 초기화될 수 있는 전역 세�
   assert.doesNotMatch(submitCompletedRankedRun, /rankedSession\?*\.season/);
 });
 
-test('닉네임 변경은 현재 시즌의 모바일·데스크탑 랭킹 이름에도 반영한다', async () => {
+test('닉네임 변경은 현재 시즌의 앱 랭킹 이름에도 반영한다', async () => {
   const server = await readFile(new URL('../functions/index.js', import.meta.url), 'utf8');
   const updatePlayerNickname = server.match(
     /export const updatePlayerNickname = onCall\(OPTIONS, async request => \{([\s\S]*?)\n\}\);/,
   )?.[1] ?? '';
 
   assert.match(updatePlayerNickname, /getKstSeason\(now\.toDate\(\)\)/);
-  assert.match(server, /season_rankings\/\$\{season\}_mobile\/scores\/\$\{uid\}/);
-  assert.match(server, /season_rankings\/\$\{season\}_desktop\/scores\/\$\{uid\}/);
+  assert.match(server, /season_rankings\/\$\{season\}_app\/scores\/\$\{uid\}/);
   assert.match(updatePlayerNickname, /transaction\.update\(currentScoreRefs\[index\], \{name:nickname/);
   assert.match(server, /syncCurrentRankingNames\(uid, profile\.nickname\)/);
 });

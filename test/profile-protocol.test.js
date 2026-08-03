@@ -56,14 +56,15 @@ test('월말 실행 제출 유예가 끝나기 전에는 직전 시즌 배지를
 });
 
 test('시즌 기록과 최종 순위는 중복 없는 배지 ID로 표현한다', () => {
-  assert.deepEqual(createSeasonBadgeIds('2026-06', 'mobile', 1), [
-    '2026-06:mobile:best',
-    '2026-06:mobile:top1',
+  assert.deepEqual(createSeasonBadgeIds('2026-06', 'app', 1), [
+    '2026-06:app:best',
+    '2026-06:app:top1',
   ]);
-  assert.deepEqual(createSeasonBadgeIds('2026-06', 'desktop', 0), [
-    '2026-06:desktop:best',
+  assert.deepEqual(createSeasonBadgeIds('2026-06', 'web', 0), [
+    '2026-06:web:best',
   ]);
-  assert.equal(formatSeasonBadge('2026-06:mobile:top10'), '2026-06 · MOBILE TOP 10');
+  assert.equal(formatSeasonBadge('2026-06:app:top10'), '2026-06 · TOP 10');
+  assert.equal(formatSeasonBadge('2026-06:web:top10'), '');
 });
 
 test('시즌 결과는 중복 없이 최근 24개만 유지한다', () => {
@@ -71,7 +72,7 @@ test('시즌 결과는 중복 없이 최근 24개만 유지한다', () => {
     const date = new Date(Date.UTC(2024, index, 1));
     return {season:`${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`};
   });
-  const next = {season:'2026-01', platforms:{mobile:null, desktop:null}};
+  const next = {season:'2026-01', platforms:{app:null}};
   const bounded = appendSeasonResult(results, next);
 
   assert.equal(bounded.length, 24);

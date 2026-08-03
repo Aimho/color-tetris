@@ -4,9 +4,10 @@ import test from 'node:test';
 
 const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
 
-test('랭킹 탭은 공통 버튼의 하단 강조 그림자를 상속하지 않는다', () => {
-  const tabRule = css.match(/\.ranking-platform-tabs button\s*\{([^}]*)\}/)?.[1] ?? '';
-  assert.match(tabRule, /box-shadow:\s*none\s*;/);
+test('단일 앱 랭킹 라벨은 보조 정보 위계로 표시한다', () => {
+  const labelRule = css.match(/\.ranking-platform-label\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(labelRule, /color:\s*var\(--muted\)\s*;/);
+  assert.match(labelRule, /letter-spacing:\s*\.16em\s*;/);
 });
 
 test('랭킹 목록은 로딩 여부와 무관하게 고정된 반응형 높이를 사용한다', () => {

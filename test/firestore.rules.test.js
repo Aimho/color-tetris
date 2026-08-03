@@ -96,7 +96,7 @@ test('랭킹 실행권과 시즌 점수는 클라이언트가 직접 쓸 수 없
   await assertFails(setDoc(doc(db, 'ranked_submissions/fake-run'), {
     uid:'ranked-player', score:999999,
   }));
-  await assertFails(setDoc(doc(db, 'season_rankings/2026-07_mobile/scores/ranked-player'), {
+  await assertFails(setDoc(doc(db, 'season_rankings/2026-07_app/scores/ranked-player'), {
     uid:'ranked-player', score:999999,
   }));
 });

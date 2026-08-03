@@ -1,6 +1,9 @@
 import { httpsCallable, getFunctions } from 'firebase/functions';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import {
   GoogleAuthProvider,
+  linkWithCredential,
   linkWithPopup,
   signInWithCredential,
   signInWithPopup,
@@ -39,27 +42,47 @@ export async function rankedServiceStatus() {
 export async function connectGoogleAccount() {
   await auth.authStateReady();
   if (isSocialAccountConnected()) return auth.currentUser;
+  if (Capacitor.getPlatform() === 'android') return connectNativeGoogleAccount();
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({prompt:'select_account'});
   if (!auth.currentUser?.isAnonymous) return (await signInWithPopup(auth, provider)).user;
   try {
     return (await linkWithPopup(auth.currentUser, provider)).user;
   } catch (error) {
-    const credential = GoogleAuthProvider.credentialFromError(error);
-    if (error?.code === 'auth/credential-already-in-use' && credential) {
-      return (await signInWithCredential(auth, credential)).user;
-    }
+    if (error?.code === 'auth/credential-already-in-use') throw accountAlreadyConnectedError();
     throw error;
   }
 }
 
+async function connectNativeGoogleAccount() {
+  const result = await FirebaseAuthentication.signInWithGoogle({skipNativeAuth:true});
+  const idToken = result.credential?.idToken;
+  if (!idToken) throw new Error('Google 계정 인증 정보를 받지 못했습니다.');
+  const credential = GoogleAuthProvider.credential(idToken);
+  if (!auth.currentUser?.isAnonymous) {
+    return (await signInWithCredential(auth, credential)).user;
+  }
+  try {
+    return (await linkWithCredential(auth.currentUser, credential)).user;
+  } catch (error) {
+    if (error?.code === 'auth/credential-already-in-use') throw accountAlreadyConnectedError();
+    throw error;
+  }
+}
+
+function accountAlreadyConnectedError() {
+  const error = new Error('이미 다른 플레이어에 연결된 Google 계정입니다. 현재 랭킹 데이터를 보호하기 위해 계정을 전환하지 않았습니다.');
+  error.code = 'auth/credential-already-in-use';
+  return error;
+}
+
 export async function startRankedRun(options = {}) {
-  const {platform, requestId = crypto.randomUUID()} = typeof options === 'string'
+  const {requestId = crypto.randomUUID()} = typeof options === 'string'
     ? {requestId:options}
     : options;
   if (!appCheck) throw new Error('랭킹 서버 보호 설정이 필요합니다.');
   await ensureAuthUser();
-  const result = await startRun({requestId, platform});
+  const result = await startRun({requestId});
   return result.data;
 }
 

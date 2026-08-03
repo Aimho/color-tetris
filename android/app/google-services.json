@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "138832269891",
+    "project_id": "color-tetrix-aimho",
+    "storage_bucket": "color-tetrix-aimho.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:138832269891:android:680c90029271687eadbaf6",
+        "android_client_info": {
+          "package_name": "com.aimho.games.colorbomb"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "138832269891-g53p4kqhbt0s2is68lsi6jojog9j6c76.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aimho.games.colorbomb",
+            "certificate_hash": "b1abacf8892eade9e2c909ee8278b7b474b4972f"
+          }
+        },
+        {
+          "client_id": "138832269891-vdhg8j3pvg1k8qmhb7c5upan22e7vtfd.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVvTDlDAF8QvK76FGqT9eggjpa4AM-6hk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "138832269891-vdhg8j3pvg1k8qmhb7c5upan22e7vtfd.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

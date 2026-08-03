@@ -92,10 +92,7 @@
                 </div>
                 <button class="ranking-close" id="rankingCloseButton" type="button" aria-label="랭킹 닫기">×</button>
               </div>
-              <div class="ranking-platform-tabs" role="tablist" aria-label="랭킹 플랫폼">
-                <button type="button" role="tab" data-ranking-platform="mobile">MOBILE</button>
-                <button type="button" role="tab" data-ranking-platform="desktop">DESKTOP</button>
-              </div>
+              <p class="ranking-platform-label">APP RANKING</p>
               <p class="ranking-my-best" id="rankingMyBest">MY BEST · —</p>
               <ol id="homeLeaderboardList"></ol>
             </section>
@@ -131,7 +128,7 @@
         </aside>
       </section>
 
-      <footer><span>CONNECT 6+</span><span id="buildVersion">VER —</span><span>BUILD THE CHAIN</span></footer>
+      <footer><span id="buildVersion">VER —</span></footer>
       <section class="access-controls" aria-label="접근성 게임 조작">
         <button type="button" data-access-action="left">왼쪽 이동</button>
         <button type="button" data-access-action="right">오른쪽 이동</button>
@@ -165,8 +162,7 @@
         <section class="profile-section" aria-labelledby="seasonStatsTitle">
           <div class="section-heading"><p>CURRENT SEASON</p><h3 id="seasonStatsTitle">시즌 기록</h3></div>
           <div class="season-platforms">
-            <article><span>MOBILE</span><strong id="profileMobileScore">—</strong><small id="profileMobileLevel">기록 없음</small></article>
-            <article><span>DESKTOP</span><strong id="profileDesktopScore">—</strong><small id="profileDesktopLevel">기록 없음</small></article>
+            <article><strong id="profileAppScore">—</strong><small id="profileAppLevel">기록 없음</small></article>
           </div>
         </section>
         <section class="profile-section" aria-labelledby="lifetimeStatsTitle">

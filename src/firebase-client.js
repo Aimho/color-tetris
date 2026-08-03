@@ -1,7 +1,9 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
-import { ReCaptchaEnterpriseProvider, initializeAppCheck } from 'firebase/app-check';
+import { CustomProvider, ReCaptchaEnterpriseProvider, initializeAppCheck } from 'firebase/app-check';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore/lite';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAppCheck } from '@capacitor-firebase/app-check';
 
 const config = {
   apiKey:'AIzaSyA_I9lW88ldisBstWrZ4rjCasSEgsC1QRg',
@@ -27,9 +29,25 @@ export async function ensureAuthUser() {
 }
 
 const appCheckSiteKey = String(import.meta.env?.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY || '').trim();
-export const appCheck = appCheckSiteKey
-  ? initializeAppCheck(app, {
-      provider:new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+const nativeAppCheckProvider = new CustomProvider({
+  getToken: () => FirebaseAppCheck.getToken({forceRefresh:false}),
+});
+
+async function initializeClientAppCheck() {
+  if (Capacitor.getPlatform() === 'android') {
+    await FirebaseAppCheck.initialize({isTokenAutoRefreshEnabled:true});
+    return initializeAppCheck(app, {
+      provider:nativeAppCheckProvider,
       isTokenAutoRefreshEnabled:true,
-    })
-  : null;
+    });
+  }
+  if (Capacitor.isNativePlatform()) return null;
+  return appCheckSiteKey
+    ? initializeAppCheck(app, {
+        provider:new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+        isTokenAutoRefreshEnabled:true,
+      })
+    : null;
+}
+
+export const appCheck = await initializeClientAppCheck().catch(() => null);

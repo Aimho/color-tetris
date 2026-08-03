@@ -3,8 +3,8 @@ export const GAME_MODES = Object.freeze({
   RANKED: 'ranked',
 });
 export const PLATFORMS = Object.freeze({
-  MOBILE: 'mobile',
-  DESKTOP: 'desktop',
+  APP: 'app',
+  WEB: 'web',
 });
 export const RUN_SNAPSHOT_KEY = 'color-bomb-run-snapshot-v1';
 export const RUN_SNAPSHOT_VERSION = 1;
@@ -23,12 +23,8 @@ export function getKstSeason(date = new Date()) {
 
 export function detectPlatform({
   native = false,
-  coarsePointer = false,
-  touchPoints = 0,
 } = {}) {
-  return native || coarsePointer || touchPoints > 0
-    ? PLATFORMS.MOBILE
-    : PLATFORMS.DESKTOP;
+  return native ? PLATFORMS.APP : PLATFORMS.WEB;
 }
 
 export function createRunSnapshot(state, now = Date.now()) {

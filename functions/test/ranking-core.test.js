@@ -15,7 +15,7 @@ import { replayRankedPlacements } from '../shared/ranked-replay.js';
 function ledger(overrides = {}) {
   const fixture = createReplayFixture('test-seed', 100);
   return {
-    season:'2026-07', platform:'mobile', ruleVersion:2,
+    season:'2026-07', platform:'app', ruleVersion:2,
     randomVersion:1, playTimeMs:60_000, piecesPlaced:fixture.result.piecesPlaced, dropPoints:0,
     placementLog:fixture.placements,
     clearSteps:fixture.result.clearSteps,
@@ -28,7 +28,7 @@ function ledger(overrides = {}) {
 }
 
 const run = {
-  season:'2026-07', platform:'mobile', createdAtMs:0,
+  season:'2026-07', platform:'app', createdAtMs:0,
   seed:'test-seed', randomVersion:1,
 };
 
@@ -38,13 +38,10 @@ test('KST 기준 일자와 월간 시즌을 계산한다', () => {
   assert.equal(getKstSeason(date), '2026-08');
 });
 
-test('웹은 요청한 터치 플랫폼을 사용하고 네이티브 앱은 모바일로 고정한다', () => {
+test('웹의 랭킹 도전을 거부하고 등록된 네이티브 앱만 허용한다', () => {
   const webAppId = '1:138832269891:web:f0236e6bc1a25972adbaf6';
-  assert.equal(platformForAppId(webAppId, [], 'mobile'), 'mobile');
-  assert.equal(platformForAppId(webAppId, [], 'desktop'), 'desktop');
-  assert.equal(platformForAppId(webAppId), 'desktop');
-  assert.equal(platformForAppId('android-app', ['android-app', 'ios-app'], 'desktop'), 'mobile');
-  assert.throws(() => platformForAppId(webAppId, [], 'tablet'), /invalid-platform/);
+  assert.throws(() => platformForAppId(webAppId), /web-ranking-disabled/);
+  assert.equal(platformForAppId('android-app', ['android-app', 'ios-app']), 'app');
   assert.throws(() => platformForAppId('unknown'), /unknown-app/);
 });
 
@@ -57,7 +54,7 @@ test('삭제 단계 원장에서 점수를 서버 방식으로 다시 계산한�
 
 test('점수·플랫폼·통계가 원장과 다르면 거부한다', () => {
   assert.throws(() => validateLedger(ledger({score:999}), run, 60_000), /score-mismatch/);
-  assert.throws(() => validateLedger(ledger({platform:'desktop'}), run, 60_000), /run-mismatch/);
+  assert.throws(() => validateLedger(ledger({platform:'web'}), run, 60_000), /run-mismatch/);
   assert.throws(() => validateLedger(ledger({directClears:99}), run, 60_000), /stats-mismatch/);
   assert.throws(() => validateReplay(ledger({piecesPlaced:2}), run), /replay-mismatch/);
 });

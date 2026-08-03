@@ -2,5 +2,11 @@
   "appId": "com.aimho.games.colorbomb",
   "appName": "COLOR BOMB",
   "webDir": "dist",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": ["google.com"]
+    }
+  },
   "server": { "androidScheme": "https" }
 }

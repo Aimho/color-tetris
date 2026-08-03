@@ -45,14 +45,14 @@ export function appendSeasonResult(results, nextResult, limit = 24) {
 
 export function formatSeasonBadge(badgeId) {
   const [season, platform, tier] = String(badgeId || '').split(':');
-  if (!/^\d{4}-\d{2}$/.test(season) || !['mobile', 'desktop'].includes(platform)) return '';
+  if (!/^\d{4}-\d{2}$/.test(season) || platform !== 'app') return '';
   const label = {
     best:'시즌 기록',
     top50:'TOP 50',
     top10:'TOP 10',
     top1:'TOP 1',
   }[tier];
-  return label ? `${season} · ${platform.toUpperCase()} ${label}` : '';
+  return label ? `${season} · ${label}` : '';
 }
 
 function seasonId(date) {

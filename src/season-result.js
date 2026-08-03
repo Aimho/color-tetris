@@ -41,9 +41,9 @@ export function acknowledgeSeasonResult(profile, storage = globalThis.localStora
 export function formatSeasonResultSummary(result) {
   const records = Object.entries(result?.platforms || {})
     .filter(([, record]) => Number.isFinite(record?.score))
-    .map(([platform, record]) => {
+    .map(([, record]) => {
       const rank = record.rank > 0 ? `#${record.rank}` : 'TOP 50 밖';
-      return `${platform.toUpperCase()} ${record.score.toLocaleString()}점 · ${rank}`;
+      return `${record.score.toLocaleString()}점 · ${rank}`;
     });
   return records.length ? records.join(' / ') : '참가 기록 없이 시즌이 종료됐어요.';
 }

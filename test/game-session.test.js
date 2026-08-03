@@ -24,7 +24,7 @@ function state() {
   };
   return {
     mode:GAME_MODES.PRACTICE,
-    platform:PLATFORMS.MOBILE,
+    platform:PLATFORMS.APP,
     board:Array.from({length:20}, () => Array(10).fill(null)),
     eventBoard:Array.from({length:20}, () => Array(10).fill(null)),
     active:piece,
@@ -53,11 +53,11 @@ test('KST 날짜와 월간 시즌을 UTC 경계에서 계산한다', () => {
   assert.equal(getKstSeason(date), '2026-08');
 });
 
-test('네이티브·터치 우선 환경은 모바일 플랫폼으로 고정한다', () => {
-  assert.equal(detectPlatform({native:true}), PLATFORMS.MOBILE);
-  assert.equal(detectPlatform({coarsePointer:true}), PLATFORMS.MOBILE);
-  assert.equal(detectPlatform({touchPoints:1}), PLATFORMS.MOBILE);
-  assert.equal(detectPlatform({}), PLATFORMS.DESKTOP);
+test('네이티브 앱과 웹 플랫폼을 구분한다', () => {
+  assert.equal(detectPlatform({native:true}), PLATFORMS.APP);
+  assert.equal(detectPlatform({coarsePointer:true}), PLATFORMS.WEB);
+  assert.equal(detectPlatform({touchPoints:1}), PLATFORMS.WEB);
+  assert.equal(detectPlatform({}), PLATFORMS.WEB);
 });
 
 test('게임 스냅샷을 저장하고 7일 안에 복구한다', () => {
