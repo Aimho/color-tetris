@@ -10,33 +10,45 @@ const getOrCreateProfile = httpsCallable(functions, 'getOrCreatePlayerProfile', 
 const updateNickname = httpsCallable(functions, 'updatePlayerNickname', {
   limitedUseAppCheckTokens:true,
 });
+const purchaseItem = httpsCallable(functions, 'purchaseShopItem', {limitedUseAppCheckTokens:true});
+const equipItem = httpsCallable(functions, 'equipShopItem', {limitedUseAppCheckTokens:true});
 
 export async function loadPlayerProfile() {
   if (!appCheck) throw new Error('프로필 서버 보호 설정이 필요합니다.');
   await ensureAuthUser();
   const result = await getOrCreateProfile();
-  return {
-    ...result.data,
-    connected:isSocialAccountConnected(),
-    provider:providerLabel(),
-  };
+  return enrichProfile(result.data);
 }
 
 export async function changePlayerNickname(nickname) {
   if (!appCheck) throw new Error('프로필 서버 보호 설정이 필요합니다.');
   await ensureAuthUser();
   const result = await updateNickname({nickname});
-  return {
-    ...result.data,
-    connected:isSocialAccountConnected(),
-    provider:providerLabel(),
-  };
+  return enrichProfile(result.data);
 }
 
 export async function connectPlayerGoogleAccount() {
   await ensureAuthUser();
   await connectGoogleAccount();
   return loadPlayerProfile();
+}
+
+export async function purchasePlayerItem(itemId) {
+  if (!appCheck) throw new Error('상점 서버 보호 설정이 필요합니다.');
+  await ensureAuthUser();
+  await purchaseItem({itemId});
+  return loadPlayerProfile();
+}
+
+export async function equipPlayerItem(itemId) {
+  if (!appCheck) throw new Error('상점 서버 보호 설정이 필요합니다.');
+  await ensureAuthUser();
+  await equipItem({itemId});
+  return loadPlayerProfile();
+}
+
+function enrichProfile(profile) {
+  return {...profile, connected:isSocialAccountConnected(), provider:providerLabel()};
 }
 
 

@@ -17,9 +17,8 @@ import {
 } from './pending-ranked.js';
 
 const functions = getFunctions(app, 'asia-northeast3');
-const startRun = httpsCallable(functions, 'startRankedRun', {limitedUseAppCheckTokens:true});
+const startRun = httpsCallable(functions, 'startRankedRunV2', {limitedUseAppCheckTokens:true});
 const submitRun = httpsCallable(functions, 'submitRankedRun', {limitedUseAppCheckTokens:true});
-const getEnergy = httpsCallable(functions, 'getRankedEnergy', {limitedUseAppCheckTokens:true});
 
 export function isSocialAccountConnected() {
   return Boolean(auth.currentUser?.providerData?.some(provider => provider.providerId !== 'anonymous'));
@@ -29,14 +28,7 @@ export async function rankedServiceStatus() {
   await ensureAuthUser();
   if (!appCheck) return {ready:false, reason:'랭킹 서버 보호 설정이 필요합니다.'};
   await flushPendingRankedRun().catch(() => {});
-  const result = await getEnergy();
-  return {
-    ready:result.data.balance > 0,
-    reason:result.data.balance > 0
-      ? '익명 플레이어 ID로 랭킹에 참여합니다.'
-      : '에너지가 충전 중입니다.',
-    energy:result.data,
-  };
+  return {ready:true, reason:'익명 플레이어 ID로 랭킹에 참여합니다.'};
 }
 
 export async function connectGoogleAccount() {

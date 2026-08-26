@@ -1,5 +1,7 @@
 apply plugin: 'com.android.application'
 
+def testAdMobAppId = "ca-app-pub-3940256099942544~3347511713"
+def admobAppId = project.findProperty("ADMOB_APP_ID") ?: System.getenv("ADMOB_APP_ID") ?: testAdMobAppId
 def uploadStoreFile = System.getenv('COLOR_BOMB_UPLOAD_STORE_FILE')
 def uploadStorePassword = System.getenv('COLOR_BOMB_UPLOAD_STORE_PASSWORD')
 def uploadKeyAlias = System.getenv('COLOR_BOMB_UPLOAD_KEY_ALIAS')
@@ -29,8 +31,9 @@ android {
         applicationId "com.aimho.games.colorbomb"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "0.4.0"
+        versionCode 6
+        versionName "0.5.0-alpha"
+        manifestPlaceholders = [admobAppId: admobAppId]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -60,6 +63,11 @@ android {
     }
 }
 
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { it.name == "bundleRelease" } && admobAppId == testAdMobAppId) {
+        throw new GradleException("Release AAB requires ADMOB_APP_ID in Gradle properties or the environment.")
+    }
+}
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'

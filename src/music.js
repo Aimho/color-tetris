@@ -18,6 +18,7 @@ export class MusicEngine {
     this.step = 0;
     this.nextNoteTime = 0;
     this.timer = null;
+    this.theme = 'reactor';
   }
 
   start(level = this.level) {
@@ -42,6 +43,7 @@ export class MusicEngine {
   }
 
   setLevel(level) { this.level = level; }
+  setTheme(theme) { this.theme = theme === 'night-drive' ? theme : 'reactor'; }
 
   schedule() {
     while (this.nextNoteTime < this.context.currentTime + 0.14) {
@@ -53,8 +55,11 @@ export class MusicEngine {
   }
 
   scheduleStep(step, time, profile) {
-    const bassNotes = [110, 110, 130.81, 98];
-    const pulseNotes = [220, 261.63, 293.66, 246.94, 220, 329.63, 293.66, 261.63];
+    const nightDrive = this.theme === 'night-drive';
+    const bassNotes = nightDrive ? [82.41, 98, 110, 73.42] : [110, 110, 130.81, 98];
+    const pulseNotes = nightDrive
+      ? [164.81, 196, 246.94, 220, 164.81, 293.66, 246.94, 196]
+      : [220, 261.63, 293.66, 246.94, 220, 329.63, 293.66, 261.63];
     if (step % 4 === 0) this.note(bassNotes[(step / 4) % bassNotes.length], time, 0.12, 'triangle', 0.42);
     if (step % profile.pulseEvery === 0) {
       const note = pulseNotes[Math.floor(step / profile.pulseEvery) % pulseNotes.length];

@@ -61,6 +61,22 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /mission_progress/{periodId} {
+      allow read, write: if false;
+    }
+
+    match /rewarded_energy_requests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /rewarded_ad_transactions/{transactionId} {
+      allow read, write: if false;
+    }
+
+    match /ranked_completion_events/{runId} {
+      allow read, write: if false;
+    }
+
     match /player_profiles/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if false;

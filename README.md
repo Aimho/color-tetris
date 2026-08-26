@@ -250,5 +250,5 @@ public/              # 아이콘, OG 이미지, 매니페스트, Service Worker
 
 구현된 범위는 싱글 플레이 Endless 모드입니다. 멀티플레이, 아이템, 특수 블록 확장, 앱스토어 출시는 현재 포함하지 않습니다.
 
-유료화와 장기 콘텐츠 검토안은 [`docs/monetization-plan.md`](docs/monetization-plan.md)에 별도로 정리되어 있습니다.
+유료화와 장기 콘텐츠 검토안은 [`docs/monetization-plan.md`](docs/monetization-plan.md)에 정리되어 있습니다. 확정된 미션, 커스터마이징 상점과 랭크 에너지 업데이트는 [`docs/update-plan/08-missions-shop-ranked-energy.md`](docs/update-plan/08-missions-shop-ranked-energy.md)를 따릅니다.
 요구사항 대비 구현 차이는 [`docs/implementation-deviations.md`](docs/implementation-deviations.md), 다음 작업은 [`docs/follow-up-work.md`](docs/follow-up-work.md)에서 관리합니다.

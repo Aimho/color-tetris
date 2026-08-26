@@ -99,10 +99,7 @@
             <section class="ranked-energy-panel" id="rankedEnergyPanel" aria-live="polite">
               <p><span>RANKED ENERGY</span><strong id="rankedEnergyValue">⚡ — / 3</strong></p>
               <small id="rankedEnergyTimer">서버에서 에너지를 확인하고 있어요.</small>
-              <div class="ranked-energy-actions" id="rankedEnergyActions" hidden>
-                <button type="button" disabled title="앱 출시 후 이용할 수 있습니다.">광고 보고 +1</button>
-                <button type="button" disabled title="앱 출시 후 이용할 수 있습니다.">에너지 충전</button>
-              </div>
+              <button id="rewardedEnergyButton" type="button" hidden>광고 보고 +1</button>
             </section>
             <section class="season-result-nudge" id="seasonResultNudge" aria-labelledby="seasonResultNudgeTitle" hidden>
               <div>
@@ -182,6 +179,18 @@
           <div class="section-heading"><p>BOARD SKIN</p><h3 id="themeTitle">테마</h3></div>
           <div class="theme-options" id="themeOptions"></div>
         </section>
+        <section class="profile-section economy-section" aria-labelledby="missionTitle">
+          <div class="section-heading"><div><p>DAILY / WEEKLY</p><h3 id="missionTitle">미션</h3></div><strong class="spark-balance" id="sparkBalance">0 SPARK</strong></div>
+          <div class="mission-tabs" role="tablist" aria-label="미션 기간">
+            <button type="button" role="tab" data-mission-tab="daily" aria-selected="true">DAILY</button>
+            <button type="button" role="tab" data-mission-tab="weekly" aria-selected="false">WEEKLY</button>
+          </div>
+          <div class="mission-list" id="missionList" aria-live="polite"></div>
+        </section>
+        <section class="profile-section economy-section" aria-labelledby="shopTitle">
+          <div class="section-heading"><div><p>CUSTOM LAB</p><h3 id="shopTitle">커스터마이징 상점</h3></div></div>
+          <div class="shop-list" id="shopList"></div>
+        </section>
         <p class="panel-status" id="profileStatus" role="status"></p>
       </div>
     </section>
@@ -213,6 +222,7 @@
         </form>
         <nav class="settings-links" aria-label="지원 및 데이터">
           <button id="openControlsButton" type="button">조작 안내 <span>→</span></button>
+          <button id="privacyOptionsButton" class="mobile-setting" type="button">광고 개인정보 선택 <span>→</span></button>
           <a href="/privacy.html">개인정보 처리방침 <span>↗</span></a>
           <a href="mailto:aimho.support@gmail.com?subject=COLOR%20BOMB%20지원">고객 지원 <span>↗</span></a>
           <a href="mailto:aimho.support@gmail.com?subject=COLOR%20BOMB%20계정%20삭제">계정 삭제 요청 <span>↗</span></a>
