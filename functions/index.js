@@ -43,6 +43,8 @@ import {
 } from './economy-core.js';
 
 const ADMOB_KEYS_URL = 'https://www.gstatic.com/admob/reward/verifier-keys.json';
+const ADMOB_CONSOLE_VERIFICATION_UID = 'admob-console-verification';
+const ADMOB_CONSOLE_VERIFICATION_REQUEST_ID = '00000000-0000-4000-8000-000000000001';
 let admobKeysCache = {expiresAt:0, keys:new Map()};
 
 initializeApp();
@@ -381,13 +383,18 @@ export const admobRewardedEnergy = onRequest({
   try {
     if (request.method !== 'GET') return response.status(405).send('method-not-allowed');
     const rawQuery = request.originalUrl.split('?')[1] || '';
-    if (!await verifyAdMobCallback(rawQuery)) return response.status(400).send('invalid-signature');
     const requestId = String(request.query.custom_data || '');
     const uid = String(request.query.user_id || '');
     const transactionId = String(request.query.transaction_id || '');
+    // AdMob's console probe has no real reward request. It can only verify URL
+    // reachability and never enters the grant transaction below.
+    if (uid === ADMOB_CONSOLE_VERIFICATION_UID && requestId === ADMOB_CONSOLE_VERIFICATION_REQUEST_ID) {
+      return response.status(200).send('verified');
+    }
+    if (!await verifyAdMobCallback(rawQuery)) return response.status(400).send('invalid-signature');
     const configuredAdUnit = String(process.env.ADMOB_REWARDED_AD_UNIT_ID || '');
     if (!configuredAdUnit) return response.status(503).send('ad-unit-not-configured');
-    if (!/^[0-9a-f-]{36}$/i.test(requestId) || !uid || !/^[0-9a-f]+$/i.test(transactionId)) {
+    if (!/^[0-9a-f-]{36}$/i.test(requestId) || !uid) {
       return response.status(400).send('invalid-parameters');
     }
     if (String(request.query.ad_unit || '') !== configuredAdUnit) {
@@ -395,6 +402,9 @@ export const admobRewardedEnergy = onRequest({
     }
     if (String(request.query.reward_item || '') !== 'energy' || String(request.query.reward_amount || '') !== '1') {
       return response.status(400).send('invalid-reward');
+    }
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(transactionId)) {
+      return response.status(400).send('invalid-transaction');
     }
     const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
     const transactionRef = db.doc(`rewarded_ad_transactions/${transactionId}`);
