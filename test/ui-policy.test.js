@@ -138,6 +138,7 @@ test('게임오버는 홈 전용 랭킹 도전 버튼을 표시하지 않는다'
 
   assert.match(endGame, /rankedStartButton\.hidden = true;/);
   assert.match(endGame, /rankingButton\.hidden = true;/);
+  assert.match(endGame, /labButton\.hidden = true;/);
 });
 
 test('모바일 Chrome의 freeze·resume·focus 생명주기에서도 게임을 안전하게 중단하고 복귀시킨다', async () => {
@@ -203,4 +204,48 @@ test('홈은 프로필 서버 기준 랭킹 에너지와 광고 충전 UI를 표
   assert.match(main, /후 충전/);
   assert.match(main, /에너지 충전 중 <span>⚡<\/span>/);
   assert.doesNotMatch(service, /httpsCallable\(functions, 'getRankedEnergy'/);
+});
+
+test('홈은 랭킹 도전을 주 행동으로 두고 LAB을 별도 진입점으로 제공한다', async () => {
+  const [html, style] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/style.css', import.meta.url), 'utf8'),
+  ]);
+  assert.ok(html.indexOf('id="rankedStartButton"') < html.indexOf('id="startButton"'));
+  assert.match(html, /id="labButton"[^>]*>LAB/);
+  assert.match(style, /#rankedStartButton\s*\{[^}]*flex-basis:\s*100%/);
+});
+
+test('에너지가 가득 차면 광고 충전 버튼을 숨긴다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /rewardedEnergyButton\.hidden = !isNativeAndroid \|\| !nextProfile \|\| energy >= 3/);
+  assert.doesNotMatch(main, /에너지 충전 완료['"]/);
+});
+
+test('도움말의 하단 시작 버튼은 게임 시작 흐름에서만 보인다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /tutorialClose\.hidden = !startsGame/);
+  assert.match(main, /tutorialClose\.innerHTML = '게임 시작 <span>▶<\/span>'/);
+});
+
+test('마이페이지와 LAB은 기록과 보상 기능을 분리한다', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const profile = html.match(/id="profilePanel"[\s\S]*?<\/section>\s*<section class="app-panel" id="labPanel"/)?.[0] ?? '';
+  const lab = html.match(/id="labPanel"[\s\S]*?<\/section>\s*<section class="app-panel" id="settingsPanel"/)?.[0] ?? '';
+  assert.doesNotMatch(profile, /id="themeOptions"|id="missionList"|id="shopList"/);
+  assert.match(lab, /id="themeOptions"/);
+  assert.match(lab, /id="missionList"/);
+  assert.match(lab, /id="shopList"/);
+});
+
+test('닉네임이 없는 구버전 프로필은 자동 닉네임으로 마이그레이션한다', async () => {
+  const [server, main] = await Promise.all([
+    readFile(new URL('../functions/index.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+  ]);
+  const getOrCreate = server.match(/async function getOrCreateProfile\(uid\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.match(getOrCreate, /existing\.exists && normalizeNickname\(existing\.data\(\)\.nickname\)/);
+  assert.match(getOrCreate, /transaction\.update\(profileRef, \{nickname, isCustom:false, updatedAt:now\}\)/);
+  assert.match(main, /nicknameInput\.value = fallbackName/);
+  assert.match(main, /서버에 연결되면 닉네임을 변경할 수 있습니다/);
 });

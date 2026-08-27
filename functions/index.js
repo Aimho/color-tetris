@@ -454,7 +454,7 @@ async function syncCurrentRankingNames(uid, nickname) {
 async function getOrCreateProfile(uid) {
   const profileRef = db.doc(`player_profiles/${uid}`);
   const existing = await profileRef.get();
-  if (existing.exists) return existing.data();
+  if (existing.exists && normalizeNickname(existing.data().nickname)) return existing.data();
 
   for (let attempt = 0; attempt < 12; attempt++) {
     const nickname = createFunnyNickname();
@@ -464,9 +464,16 @@ async function getOrCreateProfile(uid) {
         transaction.get(profileRef),
         transaction.get(reservationRef),
       ]);
-      if (profileSnapshot.exists) return profileSnapshot.data();
+      const currentProfile = profileSnapshot.exists ? profileSnapshot.data() : null;
+      if (currentProfile && normalizeNickname(currentProfile.nickname)) return currentProfile;
       if (reservationSnapshot.exists) return null;
       const now = Timestamp.now();
+      if (currentProfile) {
+        const migratedProfile = {...currentProfile, nickname, isCustom:false, updatedAt:now};
+        transaction.create(reservationRef, {uid, nickname, createdAt:now});
+        transaction.update(profileRef, {nickname, isCustom:false, updatedAt:now});
+        return migratedProfile;
+      }
       const profile = {
         uid,
         nickname,

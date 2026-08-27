@@ -85,6 +85,7 @@ const resultRank = document.querySelector('#resultRank');
 const homeRanking = document.querySelector('#homeRanking');
 const homeLeaderboardList = document.querySelector('#homeLeaderboardList');
 const rankingButton = document.querySelector('#rankingButton');
+const labButton = document.querySelector('#labButton');
 const rankingCloseButton = document.querySelector('#rankingCloseButton');
 const rankingMyBest = document.querySelector('#rankingMyBest');
 const buildVersion = document.querySelector('#buildVersion');
@@ -105,10 +106,12 @@ const seasonResultSummary = document.querySelector('#seasonResultSummary');
 const seasonResultButton = document.querySelector('#seasonResultButton');
 const settingsButton = document.querySelector('#settingsButton');
 const profilePanel = document.querySelector('#profilePanel');
+const labPanel = document.querySelector('#labPanel');
 const settingsPanel = document.querySelector('#settingsPanel');
 const profileNickname = document.querySelector('#profileNickname');
 const profileConnection = document.querySelector('#profileConnection');
 const profileStatus = document.querySelector('#profileStatus');
+const labStatus = document.querySelector('#labStatus');
 const nicknameForm = document.querySelector('#nicknameForm');
 const nicknameInput = document.querySelector('#nicknameInput');
 const nicknameHint = document.querySelector('#nicknameHint');
@@ -117,6 +120,7 @@ const themeOptions = document.querySelector('#themeOptions');
 const sparkBalance = document.querySelector('#sparkBalance');
 const missionList = document.querySelector('#missionList');
 const missionTabs = [...document.querySelectorAll('[data-mission-tab]')];
+const labTabs = [...document.querySelectorAll('[data-lab-tab]')];
 const shopList = document.querySelector('#shopList');
 const settingsForm = document.querySelector('#settingsForm');
 const openControlsButton = document.querySelector('#openControlsButton');
@@ -293,9 +297,9 @@ function renderEnergy(nextProfile = serverProfile) {
   }
   if (energyTimerId) clearInterval(energyTimerId);
   energyTimerId = setInterval(() => renderEnergy(serverProfile), 1000);
-  rewardedEnergyButton.hidden = !isNativeAndroid;
+  rewardedEnergyButton.hidden = !isNativeAndroid || !nextProfile || energy >= 3;
   rewardedEnergyButton.disabled = !nextProfile || energy >= 3;
-  rewardedEnergyButton.textContent = energy >= 3 ? '에너지 충전 완료' : '광고 보고 +1';
+  rewardedEnergyButton.textContent = '광고 보고 +1';
   if (isNativeApp && !running) {
     rankedStartButton.disabled = !nextProfile || energy <= 0;
     rankedStartButton.innerHTML = energy > 0 ? '랭킹 도전 <span>◆</span>' : '에너지 충전 중 <span>⚡</span>';
@@ -395,9 +399,9 @@ async function refreshSeasonResultNudge() {
   }
 }
 
-async function loadProfilePanel() {
+async function loadProfilePanel(statusElement = profileStatus) {
   renderLocalProfile();
-  profileStatus.textContent = '프로필과 시즌 기록을 불러오는 중…';
+  statusElement.textContent = '플레이어 데이터를 불러오는 중…';
   try {
     const [{loadPlayerProfile, formatSeasonBadge}, {loadTopScores}] = await Promise.all([
       import('./profile-service.js'),
@@ -432,12 +436,16 @@ async function loadProfilePanel() {
     }));
     profile.lastSyncedAt = Date.now();
     try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
-    profileStatus.textContent = `로컬 기록 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')} 동기화`;
+    statusElement.textContent = `동기화 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')}`;
     return true;
   } catch {
-    profileNickname.textContent = savedPlayerName() || '게스트 플레이어';
+    const fallbackName = savedPlayerName() || '게스트 플레이어';
+    profileNickname.textContent = fallbackName;
+    nicknameInput.value = fallbackName;
+    nicknameForm.querySelector('button').disabled = true;
+    nicknameHint.textContent = '서버에 연결되면 닉네임을 변경할 수 있습니다.';
     profileConnection.textContent = '오프라인 · 로컬 기록 표시 중';
-    profileStatus.textContent = profile.lastSyncedAt
+    statusElement.textContent = profile.lastSyncedAt
       ? `마지막 동기화 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')}`
       : '서버 프로필에 연결하지 못했습니다. 로컬 기록은 계속 사용할 수 있습니다.';
     return false;
@@ -582,6 +590,7 @@ function reset(mode = gameMode, session = pendingRankedSession) {
   homeButton.hidden = true;
   startButton.hidden = false;
   rankedStartButton.hidden = true;
+  labButton.hidden = true;
   pauseButton.disabled = false;
   lastTime = performance.now(); dropTimer = 0; lockTimer = 0;
   startMusic();
@@ -1491,6 +1500,8 @@ function openTutorial(startsGame = false) {
   if (running) { paused = true; stopLoop(); stopMusic(); }
   gameShell.inert = true;
   tutorial.hidden = false;
+  tutorialClose.hidden = !startsGame;
+  tutorialClose.innerHTML = '게임 시작 <span>▶</span>';
   tutorialSheet.scrollTop = 0;
   tutorialDismiss.focus({ preventScroll: true });
 }
@@ -1537,6 +1548,7 @@ function endGame() {
   shareButton.hidden = false;
   homeButton.hidden = false;
   rankingButton.hidden = true;
+  labButton.hidden = true;
   overlay.classList.add('visible', 'game-over');
   scoreRecord.hidden = false;
   if (gameMode === GAME_MODES.RANKED) submitCompletedRankedRun(runId, score, level);
@@ -1987,6 +1999,10 @@ startButton.addEventListener('click', () => startSelectedMode(GAME_MODES.PRACTIC
 rankedStartButton.addEventListener('click', () => startSelectedMode(GAME_MODES.RANKED));
 homeHelpButton.addEventListener('click', () => openTutorial(false));
 rankingButton.addEventListener('click', openHomeRanking);
+labButton.addEventListener('click', () => {
+  openAppPanel(labPanel, labButton);
+  loadProfilePanel(labStatus);
+});
 homeButton.addEventListener('click', returnHome);
 profileButton.addEventListener('click', () => {
   openAppPanel(profilePanel, profileButton);
@@ -2042,21 +2058,28 @@ missionTabs.forEach(tab => tab.addEventListener('click', () => {
   selectedMissionPeriod = tab.dataset.missionTab;
   renderMissions();
 }));
+labTabs.forEach(tab => tab.addEventListener('click', () => {
+  const selected = tab.dataset.labTab;
+  labTabs.forEach(item => item.setAttribute('aria-selected', String(item === tab)));
+  document.querySelectorAll('[data-lab-view]').forEach(view => {
+    view.hidden = view.dataset.labView !== selected;
+  });
+}));
 shopList.addEventListener('click', async event => {
   const button = event.target.closest('[data-shop-item]');
   if (!button) return;
   button.disabled = true;
-  profileStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매하는 중…' : '상품을 장착하는 중…';
+  labStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매하는 중…' : '상품을 장착하는 중…';
   try {
     const api = await import('./profile-service.js');
     const nextProfile = button.dataset.shopAction === 'purchase'
       ? await api.purchasePlayerItem(button.dataset.shopItem)
       : await api.equipPlayerItem(button.dataset.shopItem);
     renderServerProfile(nextProfile);
-    profileStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매했습니다.' : '상품을 장착했습니다.';
+    labStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매했습니다.' : '상품을 장착했습니다.';
   } catch (error) {
     button.disabled = false;
-    profileStatus.textContent = error?.message || '상점 요청을 처리하지 못했습니다.';
+    labStatus.textContent = error?.message || '상점 요청을 처리하지 못했습니다.';
   }
 });
 settingsForm.addEventListener('change', event => {
@@ -2138,7 +2161,7 @@ gameShell.addEventListener('contextmenu',e=>e.preventDefault());
 installCanvasInputGuards(canvas);
 window.addEventListener('keydown',e=>{
   if (!resumeDialog.hidden) return;
-  const openPanel = [profilePanel, settingsPanel].find(panel => !panel.hidden);
+  const openPanel = [profilePanel, labPanel, settingsPanel].find(panel => !panel.hidden);
   if (openPanel) {
     if (e.key === 'Escape') { e.preventDefault(); closeAppPanel(openPanel); }
     return;
@@ -2195,10 +2218,11 @@ function discardSavedRun() {
   overlay.classList.remove('game-over', 'ranking-view');
   overlayTitle.innerHTML = '낙하가 끝나면<br />연쇄가 시작된다';
   overlayCopy.textContent = '같은 색 블록을 6칸 이상 연결하세요. 무너진 블록이 새로운 연쇄를 만듭니다.';
-  startButton.innerHTML = '연습하기 <span>▶</span>';
+  startButton.innerHTML = '연습 <span>▶</span>';
   startButton.hidden = false;
   rankedStartButton.hidden = false;
   rankingButton.hidden = false;
+  labButton.hidden = false;
   shareButton.hidden = true;
   homeButton.hidden = true;
   refreshRankedAvailability();
@@ -2218,9 +2242,10 @@ function returnHome() {
   overlayCopy.textContent = '같은 색 블록을 6칸 이상 연결하세요. 무너진 블록이 새로운 연쇄를 만듭니다.';
   scoreRecord.hidden = true;
   startButton.hidden = false;
-  startButton.innerHTML = '연습하기 <span>▶</span>';
+  startButton.innerHTML = '연습 <span>▶</span>';
   rankedStartButton.hidden = false;
   rankingButton.hidden = false;
+  labButton.hidden = false;
   shareButton.hidden = true;
   homeButton.hidden = true;
   currentGameResult = null;
