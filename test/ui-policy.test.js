@@ -14,7 +14,7 @@ test('랭킹 초기 상태는 준비 중 대신 로딩 중으로 안내한다', 
 
 test('에너지 응답이 없으면 충전 중으로 오인시키지 않는다', async () => {
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
-  assert.match(main, /status\.energy\s*\?\s*'에너지 충전 중 <span>⚡<\/span>'\s*:\s*'랭킹 점검 중 <span>◆<\/span>'/);
+  assert.match(main, /serverProfile\s*\?\s*'에너지 충전 중 <span>⚡<\/span>'\s*:\s*'랭킹 점검 중 <span>◆<\/span>'/);
   assert.match(main, /랭킹 연결 실패 <span>◆<\/span>/);
 });
 
@@ -190,16 +190,17 @@ test('그래픽 테마는 가로 스크롤 카드로 선택한다', async () => 
   assert.match(main, /theme === 'neon'/);
 });
 
-test('홈은 서버 기준 랭킹 에너지와 충전 대기 UI를 표시한다', async () => {
+test('홈은 프로필 서버 기준 랭킹 에너지와 광고 충전 UI를 표시한다', async () => {
   const [html, main, service] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),
     readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/ranked-service.js', import.meta.url), 'utf8'),
   ]);
   assert.match(html, /id="rankedEnergyValue">⚡ — \/ 3/);
-  assert.match(html, /id="rankedEnergyActions" hidden/);
+  assert.match(html, /id="rewardedEnergyButton"[^>]*hidden/);
   assert.match(html, /광고 보고 \+1/);
-  assert.match(main, /다음 충전까지 \$\{formatEnergyCountdown\(energy\.remainingMs\)\}/);
+  assert.match(main, /nextProfile\.nextEnergyAt - Date\.now\(\)/);
+  assert.match(main, /후 충전/);
   assert.match(main, /에너지 충전 중 <span>⚡<\/span>/);
-  assert.match(service, /httpsCallable\(functions, 'getRankedEnergy'/);
+  assert.doesNotMatch(service, /httpsCallable\(functions, 'getRankedEnergy'/);
 });

@@ -45,10 +45,6 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    match /ranked_energy/{userId} {
-      allow read, write: if false;
-    }
-
     match /ranked_runs/{runId} {
       allow read, write: if false;
     }
