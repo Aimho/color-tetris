@@ -85,7 +85,8 @@ const resultRank = document.querySelector('#resultRank');
 const homeRanking = document.querySelector('#homeRanking');
 const homeLeaderboardList = document.querySelector('#homeLeaderboardList');
 const rankingButton = document.querySelector('#rankingButton');
-const labButton = document.querySelector('#labButton');
+const missionButton = document.querySelector('#missionButton');
+const shopButton = document.querySelector('#shopButton');
 const rankingCloseButton = document.querySelector('#rankingCloseButton');
 const rankingMyBest = document.querySelector('#rankingMyBest');
 const buildVersion = document.querySelector('#buildVersion');
@@ -107,6 +108,8 @@ const seasonResultButton = document.querySelector('#seasonResultButton');
 const settingsButton = document.querySelector('#settingsButton');
 const profilePanel = document.querySelector('#profilePanel');
 const labPanel = document.querySelector('#labPanel');
+const labPanelKicker = document.querySelector('#labPanelKicker');
+const labPanelTitle = document.querySelector('#labPanelTitle');
 const settingsPanel = document.querySelector('#settingsPanel');
 const profileNickname = document.querySelector('#profileNickname');
 const profileConnection = document.querySelector('#profileConnection');
@@ -120,7 +123,6 @@ const themeOptions = document.querySelector('#themeOptions');
 const sparkBalance = document.querySelector('#sparkBalance');
 const missionList = document.querySelector('#missionList');
 const missionTabs = [...document.querySelectorAll('[data-mission-tab]')];
-const labTabs = [...document.querySelectorAll('[data-lab-tab]')];
 const shopList = document.querySelector('#shopList');
 const settingsForm = document.querySelector('#settingsForm');
 const openControlsButton = document.querySelector('#openControlsButton');
@@ -590,7 +592,8 @@ function reset(mode = gameMode, session = pendingRankedSession) {
   homeButton.hidden = true;
   startButton.hidden = false;
   rankedStartButton.hidden = true;
-  labButton.hidden = true;
+  missionButton.hidden = true;
+  shopButton.hidden = true;
   pauseButton.disabled = false;
   lastTime = performance.now(); dropTimer = 0; lockTimer = 0;
   startMusic();
@@ -1548,7 +1551,8 @@ function endGame() {
   shareButton.hidden = false;
   homeButton.hidden = false;
   rankingButton.hidden = true;
-  labButton.hidden = true;
+  missionButton.hidden = true;
+  shopButton.hidden = true;
   overlay.classList.add('visible', 'game-over');
   scoreRecord.hidden = false;
   if (gameMode === GAME_MODES.RANKED) submitCompletedRankedRun(runId, score, level);
@@ -1999,10 +2003,18 @@ startButton.addEventListener('click', () => startSelectedMode(GAME_MODES.PRACTIC
 rankedStartButton.addEventListener('click', () => startSelectedMode(GAME_MODES.RANKED));
 homeHelpButton.addEventListener('click', () => openTutorial(false));
 rankingButton.addEventListener('click', openHomeRanking);
-labButton.addEventListener('click', () => {
-  openAppPanel(labPanel, labButton);
+function openEconomyPanel(viewName, opener) {
+  const missions = viewName === 'missions';
+  labPanelKicker.textContent = missions ? 'DAILY / WEEKLY' : 'THEME & CUSTOM';
+  labPanelTitle.textContent = missions ? '미션' : '상점';
+  document.querySelectorAll('[data-lab-view]').forEach(view => {
+    view.hidden = view.dataset.labView !== viewName;
+  });
+  openAppPanel(labPanel, opener);
   loadProfilePanel(labStatus);
-});
+}
+missionButton.addEventListener('click', () => openEconomyPanel('missions', missionButton));
+shopButton.addEventListener('click', () => openEconomyPanel('custom', shopButton));
 homeButton.addEventListener('click', returnHome);
 profileButton.addEventListener('click', () => {
   openAppPanel(profilePanel, profileButton);
@@ -2057,13 +2069,6 @@ themeOptions.addEventListener('click', event => {
 missionTabs.forEach(tab => tab.addEventListener('click', () => {
   selectedMissionPeriod = tab.dataset.missionTab;
   renderMissions();
-}));
-labTabs.forEach(tab => tab.addEventListener('click', () => {
-  const selected = tab.dataset.labTab;
-  labTabs.forEach(item => item.setAttribute('aria-selected', String(item === tab)));
-  document.querySelectorAll('[data-lab-view]').forEach(view => {
-    view.hidden = view.dataset.labView !== selected;
-  });
 }));
 shopList.addEventListener('click', async event => {
   const button = event.target.closest('[data-shop-item]');
@@ -2222,7 +2227,8 @@ function discardSavedRun() {
   startButton.hidden = false;
   rankedStartButton.hidden = false;
   rankingButton.hidden = false;
-  labButton.hidden = false;
+  missionButton.hidden = false;
+  shopButton.hidden = false;
   shareButton.hidden = true;
   homeButton.hidden = true;
   refreshRankedAvailability();
@@ -2245,7 +2251,8 @@ function returnHome() {
   startButton.innerHTML = '연습 <span>▶</span>';
   rankedStartButton.hidden = false;
   rankingButton.hidden = false;
-  labButton.hidden = false;
+  missionButton.hidden = false;
+  shopButton.hidden = false;
   shareButton.hidden = true;
   homeButton.hidden = true;
   currentGameResult = null;

@@ -138,7 +138,8 @@ test('게임오버는 홈 전용 랭킹 도전 버튼을 표시하지 않는다'
 
   assert.match(endGame, /rankedStartButton\.hidden = true;/);
   assert.match(endGame, /rankingButton\.hidden = true;/);
-  assert.match(endGame, /labButton\.hidden = true;/);
+  assert.match(endGame, /missionButton\.hidden = true;/);
+  assert.match(endGame, /shopButton\.hidden = true;/);
 });
 
 test('모바일 Chrome의 freeze·resume·focus 생명주기에서도 게임을 안전하게 중단하고 복귀시킨다', async () => {
@@ -206,13 +207,16 @@ test('홈은 프로필 서버 기준 랭킹 에너지와 광고 충전 UI를 표
   assert.doesNotMatch(service, /httpsCallable\(functions, 'getRankedEnergy'/);
 });
 
-test('홈은 랭킹 도전을 주 행동으로 두고 LAB을 별도 진입점으로 제공한다', async () => {
+test('홈은 랭킹·미션·상점을 명확히 분리하고 연습을 보조 링크로 제공한다', async () => {
   const [html, style] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),
     readFile(new URL('../src/style.css', import.meta.url), 'utf8'),
   ]);
   assert.ok(html.indexOf('id="rankedStartButton"') < html.indexOf('id="startButton"'));
-  assert.match(html, /id="labButton"[^>]*>LAB/);
+  assert.match(html, /id="missionButton"[^>]*>미션/);
+  assert.match(html, /id="shopButton"[^>]*>상점/);
+  assert.match(html, /id="startButton"[^>]*>에너지 없이 연습하기/);
+  assert.doesNotMatch(html, />LAB</);
   assert.match(style, /#rankedStartButton\s*\{[^}]*flex-basis:\s*100%/);
 });
 
