@@ -1,7 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, verify as verifySignature } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
-import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { logger } from 'firebase-functions';
 import {
   RULE_VERSION,
@@ -12,11 +14,6 @@ import {
   validateLedger,
   validateReplay,
 } from './ranking-core.js';
-import {
-  calculateRankedEnergy,
-  rewardRankedEnergy,
-  spendRankedEnergy,
-} from './shared/ranked-energy.js';
 import { RANKED_RANDOM_VERSION } from './shared/ranked-random.js';
 import {
   canChangeNickname,
@@ -29,6 +26,26 @@ import {
   createSeasonBadgeIds,
   getUnprocessedClosedSeasons,
 } from './shared/season-badges.js';
+import {
+  DAILY_MISSIONS,
+  ENERGY_MAX,
+  SHOP_CATALOG,
+  WEEKLY_MISSIONS,
+  applyMissionRun,
+  catalogItem,
+  consumeEnergy,
+  defaultEconomy,
+  emptyMissionProgress,
+  getKstWeek,
+  grantEnergy,
+  refillEnergy,
+  serializeMissions,
+} from './economy-core.js';
+
+const ADMOB_KEYS_URL = 'https://www.gstatic.com/admob/reward/verifier-keys.json';
+const ADMOB_CONSOLE_VERIFICATION_UID = 'admob-console-verification';
+const ADMOB_CONSOLE_VERIFICATION_REQUEST_ID = '00000000-0000-4000-8000-000000000001';
+let admobKeysCache = {expiresAt:0, keys:new Map()};
 
 initializeApp();
 const db = getFirestore();
@@ -40,7 +57,14 @@ const OPTIONS = {
   memory:'256MiB',
   maxInstances:10,
 };
-export const startRankedRun = onCall(OPTIONS, async request => {
+// Old test builds cannot display or recover ranked energy. Fail explicitly so
+// they cannot silently bypass the policy or strand players after three runs.
+export const startRankedRun = onCall(OPTIONS, () => {
+  throw new HttpsError('failed-precondition', '최신 버전으로 업데이트한 뒤 랭크에 참여해 주세요.');
+});
+export const startRankedRunV2 = onCall(OPTIONS, request => createRankedRun(request, true));
+
+async function createRankedRun(request, energyRequired) {
   const uid = requireRankedUid(request);
   await getOrCreateProfile(uid);
   const requestId = normalizeRequestId(request.data?.requestId);
@@ -50,21 +74,22 @@ export const startRankedRun = onCall(OPTIONS, async request => {
   const day = getKstDay(nowDate);
   const season = getKstSeason(nowDate);
   const runId = randomUUID();
-  const energyRef = db.doc(`ranked_energy/${uid}`);
+  const profileRef = db.doc(`player_profiles/${uid}`);
   const runRef = db.doc(`ranked_runs/${runId}`);
   const requestRef = db.doc(`ranked_run_requests/${uid}_${day}_${requestId}`);
 
   const remaining = await db.runTransaction(async transaction => {
-    const previousRequest = await transaction.get(requestRef);
+    const [previousRequest, profileSnapshot] = await Promise.all([
+      transaction.get(requestRef),
+      transaction.get(profileRef),
+    ]);
     if (previousRequest.exists) return previousRequest.data().response;
-    const energySnapshot = await transaction.get(energyRef);
-    const energy = spendRankedEnergy(energySnapshot.data(), now.toMillis());
-    if (!energy.spent) {
-      throw new HttpsError('resource-exhausted', '에너지가 충전 중입니다.', {
-        energy:serializeRankedEnergy(energy),
-      });
-    }
-    transaction.set(energyRef, energyDocument(uid, energy, now));
+    const profile = profileSnapshot.data();
+    const energy = energyRequired
+      ? consumeEnergy(energyState(profile, now.toMillis()), now.toMillis())
+      : refillEnergy(energyState(profile, now.toMillis()), now.toMillis());
+    if (energyRequired && !energy.consumed) throw new HttpsError('resource-exhausted', '랭크 에너지가 부족합니다.');
+    if (energyRequired) transaction.update(profileRef, energyUpdate(energy, now));
     transaction.create(runRef, {
       uid, day, season, platform, ruleVersion:RULE_VERSION,
       seed:runId, randomVersion:RANKED_RANDOM_VERSION,
@@ -74,7 +99,8 @@ export const startRankedRun = onCall(OPTIONS, async request => {
     const result = {
       runId, day, season, platform, ruleVersion:RULE_VERSION,
       seed:runId, randomVersion:RANKED_RANDOM_VERSION,
-      energy:serializeRankedEnergy(energy),
+      remaining:energyRequired ? energy.energy : null,
+      nextRefillAt:energyRequired ? energy.nextRefillAtMs : null,
       expiresAt:now.toMillis() + RUN_TTL_MS,
     };
     transaction.create(requestRef, {
@@ -85,7 +111,7 @@ export const startRankedRun = onCall(OPTIONS, async request => {
   });
 
   return remaining;
-});
+}
 
 export const submitRankedRun = onCall(OPTIONS, async request => {
   const platform = safeAppPlatform(request.app?.appId);
@@ -157,20 +183,14 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
     const now = Timestamp.now();
 
     const scoreRef = db.doc(`season_rankings/${run.season}_${run.platform}/scores/${uid}`);
-    const energyRef = db.doc(`ranked_energy/${uid}`);
-    const [previousSnapshot, energySnapshot] = await Promise.all([
-      transaction.get(scoreRef),
-      transaction.get(energyRef),
-    ]);
+    const day = getKstDay(now.toDate());
+    const week = getKstWeek(now.toDate());
+    const previousSnapshot = await transaction.get(scoreRef);
     const previous = previousSnapshot.data();
     const firstRecord = !previous;
     const updated = !previous
       || ledger.score > previous.score
       || (ledger.score === previous.score && ledger.level > previous.level);
-
-    const energy = updated
-      ? rewardRankedEnergy(energySnapshot.data(), now.toMillis())
-      : calculateRankedEnergy(energySnapshot.data(), now.toMillis());
 
     transaction.update(runRef, {
       status:'accepted', submittedAt:now, verifiedAt:now, bestUpdated:updated,
@@ -178,14 +198,15 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
       previousScore:previous?.score ?? null,
       bestScore:updated ? ledger.score : previous.score,
       finalScore:ledger.score, finalLevel:ledger.level, finalName:name,
-      energyRewarded:updated && energy.rewarded,
-      energyAfter:serializeRankedEnergy(energy),
     });
-    transaction.set(energyRef, energyDocument(uid, energy, now));
     transaction.create(db.doc(`ranked_submissions/${runId}`), {
       uid, name, runId, season:run.season, platform:run.platform,
       ruleVersion:RULE_VERSION, ledger, status:'accepted',
       createdAt:FieldValue.serverTimestamp(),
+      cleanupAt:Timestamp.fromMillis(now.toMillis() + 40 * 24 * 60 * 60 * 1000),
+    });
+    transaction.create(db.doc(`ranked_completion_events/${runId}`), {
+      uid, runId, day, week, ledger, status:'pending', createdAt:now,
       cleanupAt:Timestamp.fromMillis(now.toMillis() + 40 * 24 * 60 * 60 * 1000),
     });
     if (updated) {
@@ -204,21 +225,76 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
       score:ledger.score,
       level:ledger.level,
       name,
-      energyRewarded:updated && energy.rewarded,
-      energy:serializeRankedEnergy(energy),
     };
   });
   return result;
 });
 
-export const getRankedEnergy = onCall(OPTIONS, async request => {
-  safeAppPlatform(request.app?.appId);
-  const uid = requireRankedUid(request);
-  const now = Timestamp.now();
-  const snapshot = await db.doc(`ranked_energy/${uid}`).get();
-  const energy = calculateRankedEnergy(snapshot.data(), now.toMillis());
-  return serializeRankedEnergy(energy);
+export const applyRankedMissionRewards = onDocumentCreated({
+  document:'ranked_completion_events/{runId}',
+  region:'asia-northeast3',
+  retry:true,
+  timeoutSeconds:30,
+  memory:'256MiB',
+  maxInstances:10,
+}, async event => {
+  const eventRef = event.data?.ref;
+  if (!eventRef) return;
+  await processRankedMissionEvent(eventRef);
 });
+
+export const reconcileRankedMissionRewards = onSchedule({
+  schedule:'every 15 minutes',
+  region:'asia-northeast3',
+  retryCount:3,
+  timeoutSeconds:60,
+  memory:'256MiB',
+}, async () => {
+  const pending = await db.collection('ranked_completion_events')
+    .where('status', '==', 'pending')
+    .limit(100)
+    .get();
+  const results = await Promise.allSettled(pending.docs.map(snapshot => processRankedMissionEvent(snapshot.ref)));
+  const failed = results.filter(result => result.status === 'rejected');
+  if (failed.length) {
+    logger.error('Ranked mission reconciliation incomplete', {failed:failed.length, total:results.length});
+    throw new Error('ranked-mission-reconciliation-incomplete');
+  }
+});
+
+async function processRankedMissionEvent(eventRef) {
+  await db.runTransaction(async transaction => {
+    const eventSnapshot = await transaction.get(eventRef);
+    const completion = eventSnapshot.data();
+    if (!eventSnapshot.exists || completion.status === 'processed') return;
+    const {uid, day, week, ledger} = completion;
+    if (!uid || !day || !week || !ledger) throw new Error('invalid-ranked-completion-event');
+    const profileRef = db.doc(`player_profiles/${uid}`);
+    const dailyRef = db.doc(`mission_progress/${uid}_daily_${day}`);
+    const weeklyRef = db.doc(`mission_progress/${uid}_weekly_${week}`);
+    const [profileSnapshot, dailySnapshot, weeklySnapshot] = await Promise.all([
+      transaction.get(profileRef), transaction.get(dailyRef), transaction.get(weeklyRef),
+    ]);
+    if (!profileSnapshot.exists) throw new Error('ranked-completion-profile-missing');
+    const daily = applyMissionRun(
+      dailySnapshot.exists ? dailySnapshot.data() : emptyMissionProgress(day, 'daily'), ledger,
+    );
+    const weekly = applyMissionRun(
+      weeklySnapshot.exists ? weeklySnapshot.data() : emptyMissionProgress(week, 'weekly'), ledger,
+    );
+    const missionReward = daily.reward + weekly.reward;
+    const now = Timestamp.now();
+    transaction.set(dailyRef, missionProgressData(uid, daily, now));
+    transaction.set(weeklyRef, missionProgressData(uid, weekly, now));
+    if (missionReward > 0) {
+      transaction.update(profileRef, {
+        sparkBalance:Math.max(0, Number(profileSnapshot.data().sparkBalance) || 0) + missionReward,
+        updatedAt:now,
+      });
+    }
+    transaction.update(eventRef, {status:'processed', missionReward, processedAt:now});
+  });
+}
 
 export const getOrCreatePlayerProfile = onCall(OPTIONS, async request => {
   const uid = requireUid(request);
@@ -227,7 +303,189 @@ export const getOrCreatePlayerProfile = onCall(OPTIONS, async request => {
     syncCurrentRankingNames(uid, profile.nickname),
     syncClosedSeasonBadges(uid, profile),
   ]);
-  return serializePlayerProfile((await db.doc(`player_profiles/${uid}`).get()).data());
+  const refreshed = await refreshPlayerEconomy(uid);
+  return serializePlayerProfile(refreshed.profile, refreshed);
+});
+
+export const purchaseShopItem = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  const item = catalogItem(String(request.data?.itemId || ''));
+  if (!item) throw new HttpsError('invalid-argument', '판매 중인 상품이 아닙니다.');
+  await getOrCreateProfile(uid);
+  const profileRef = db.doc(`player_profiles/${uid}`);
+  const result = await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(profileRef);
+    const profile = snapshot.data();
+    const ownedItems = Array.isArray(profile.ownedItems) ? profile.ownedItems : [];
+    if (ownedItems.includes(item.id)) return {purchased:false, profile};
+    const balance = Math.max(0, Number(profile.sparkBalance) || 0);
+    if (balance < item.price) throw new HttpsError('failed-precondition', 'SPARK가 부족합니다.');
+    const next = {...profile, sparkBalance:balance - item.price, ownedItems:[...ownedItems, item.id]};
+    transaction.update(profileRef, {
+      sparkBalance:next.sparkBalance,
+      ownedItems:next.ownedItems,
+      updatedAt:FieldValue.serverTimestamp(),
+    });
+    return {purchased:true, profile:next};
+  });
+  return {...serializePlayerProfile(result.profile), purchased:result.purchased};
+});
+
+export const equipShopItem = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  const item = catalogItem(String(request.data?.itemId || ''));
+  if (!item) throw new HttpsError('invalid-argument', '장착할 수 없는 상품입니다.');
+  const profileRef = db.doc(`player_profiles/${uid}`);
+  const profile = await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(profileRef);
+    if (!snapshot.exists) throw new HttpsError('failed-precondition', '프로필을 먼저 불러와주세요.');
+    const current = snapshot.data();
+    if (!Array.isArray(current.ownedItems) || !current.ownedItems.includes(item.id)) {
+      throw new HttpsError('permission-denied', '보유한 상품만 장착할 수 있습니다.');
+    }
+    const equippedItems = {...current.equippedItems, [item.slot]:item.id};
+    transaction.update(profileRef, {equippedItems, updatedAt:FieldValue.serverTimestamp()});
+    return {...current, equippedItems};
+  });
+  return serializePlayerProfile(profile);
+});
+
+export const createRewardedEnergyRequest = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  await getOrCreateProfile(uid);
+  const now = Timestamp.now();
+  const profile = await refreshPlayerEconomy(uid, now);
+  if (profile.energy >= ENERGY_MAX) throw new HttpsError('failed-precondition', '에너지가 이미 가득 찼습니다.');
+  const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
+  const result = await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(requestRef);
+    const existing = snapshot.data();
+    if (snapshot.exists && ['pending', 'shown'].includes(existing.status) && existing.expiresAt.toMillis() > now.toMillis()) {
+      return {
+        requestId:existing.requestId,
+        userId:uid,
+        expiresAt:existing.expiresAt.toMillis(),
+        reused:true,
+        shown:existing.status === 'shown',
+      };
+    }
+    const requestId = randomUUID();
+    const expiresAt = Timestamp.fromMillis(now.toMillis() + 10 * 60 * 1000);
+    transaction.set(requestRef, {
+      uid, requestId,
+      status:'pending',
+      createdAt:now,
+      expiresAt,
+      cleanupAt:Timestamp.fromMillis(now.toMillis() + 24 * 60 * 60 * 1000),
+    });
+    return {requestId, userId:uid, expiresAt:expiresAt.toMillis(), reused:false, shown:false};
+  });
+  return result;
+});
+
+export const markRewardedEnergyRequestShown = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  const requestId = normalizeRequestId(request.data?.requestId);
+  const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
+  await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(requestRef);
+    const reward = snapshot.data();
+    if (!snapshot.exists || reward.requestId !== requestId || reward.status !== 'pending') {
+      throw new HttpsError('failed-precondition', '광고 요청을 표시 상태로 변경할 수 없습니다.');
+    }
+    transaction.update(requestRef, {status:'shown', shownAt:FieldValue.serverTimestamp()});
+  });
+  return {status:'shown'};
+});
+
+export const cancelRewardedEnergyRequest = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  const requestId = normalizeRequestId(request.data?.requestId);
+  const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
+  await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(requestRef);
+    const reward = snapshot.data();
+    if (!snapshot.exists || reward.requestId !== requestId || !['pending', 'shown'].includes(reward.status)) return;
+    transaction.update(requestRef, {status:'cancelled', cancelledAt:FieldValue.serverTimestamp()});
+  });
+  return {status:'cancelled'};
+});
+
+export const getRewardedEnergyRequestStatus = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  const requestId = normalizeRequestId(request.data?.requestId);
+  const snapshot = await db.doc(`rewarded_energy_requests/${uid}`).get();
+  if (!snapshot.exists || snapshot.data().requestId !== requestId) {
+    return {status:'expired', serverNow:Date.now()};
+  }
+  const reward = snapshot.data();
+  const serverNow = Date.now();
+  const expiresAt = reward.expiresAt?.toMillis?.() || 0;
+  return {
+    status:reward.status === 'verified'
+      ? 'verified'
+      : reward.status === 'cancelled' || expiresAt <= serverNow ? 'expired' : 'pending',
+    expiresAt,
+    serverNow,
+  };
+});
+
+export const admobRewardedEnergy = onRequest({
+  region:'asia-northeast3', timeoutSeconds:15, memory:'256MiB', maxInstances:10,
+}, async (request, response) => {
+  try {
+    if (request.method !== 'GET') return response.status(405).send('method-not-allowed');
+    const rawQuery = request.originalUrl.split('?')[1] || '';
+    const requestId = String(request.query.custom_data || '');
+    const uid = String(request.query.user_id || '');
+    const transactionId = String(request.query.transaction_id || '');
+    // AdMob's console probe has no real reward request. It can only verify URL
+    // reachability and never enters the grant transaction below.
+    if (uid === ADMOB_CONSOLE_VERIFICATION_UID && requestId === ADMOB_CONSOLE_VERIFICATION_REQUEST_ID) {
+      return response.status(200).send('verified');
+    }
+    if (!await verifyAdMobCallback(rawQuery)) return response.status(400).send('invalid-signature');
+    const configuredAdUnit = String(process.env.ADMOB_REWARDED_AD_UNIT_ID || '');
+    if (!configuredAdUnit) return response.status(503).send('ad-unit-not-configured');
+    if (!/^[0-9a-f-]{36}$/i.test(requestId) || !uid) {
+      return response.status(400).send('invalid-parameters');
+    }
+    if (String(request.query.ad_unit || '') !== configuredAdUnit) {
+      return response.status(400).send('invalid-ad-unit');
+    }
+    if (String(request.query.reward_item || '') !== 'energy' || String(request.query.reward_amount || '') !== '1') {
+      return response.status(400).send('invalid-reward');
+    }
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(transactionId)) {
+      return response.status(400).send('invalid-transaction');
+    }
+    const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
+    const transactionRef = db.doc(`rewarded_ad_transactions/${transactionId}`);
+    const profileRef = db.doc(`player_profiles/${uid}`);
+    await db.runTransaction(async transaction => {
+      const [rewardSnapshot, usedSnapshot, profileSnapshot] = await Promise.all([
+        transaction.get(requestRef), transaction.get(transactionRef), transaction.get(profileRef),
+      ]);
+      if (usedSnapshot.exists) return;
+      const rewardRequest = rewardSnapshot.data();
+      if (!rewardSnapshot.exists || rewardRequest.uid !== uid || rewardRequest.requestId !== requestId || !['pending', 'shown'].includes(rewardRequest.status)) {
+        throw new Error('invalid-request');
+      }
+      const now = Timestamp.now();
+      if (rewardRequest.expiresAt.toMillis() < now.toMillis()) throw new Error('expired-request');
+      const energy = grantEnergy(energyState(profileSnapshot.data(), now.toMillis()), now.toMillis());
+      transaction.create(transactionRef, {
+        uid, requestId, transactionId, granted:energy.granted, createdAt:now,
+        cleanupAt:Timestamp.fromMillis(now.toMillis() + 90 * 24 * 60 * 60 * 1000),
+      });
+      transaction.update(requestRef, {status:'verified', transactionId, granted:energy.granted, verifiedAt:now});
+      if (energy.granted) transaction.update(profileRef, energyUpdate(energy, now));
+    });
+    return response.status(200).send('ok');
+  } catch (error) {
+    logger.warn('AdMob rewarded SSV rejected', {reason:String(error?.message || 'unknown').slice(0, 80)});
+    return response.status(400).send('rejected');
+  }
 });
 
 function currentSeasonScoreRefs(uid, season = getKstSeason()) {
@@ -249,7 +507,7 @@ async function syncCurrentRankingNames(uid, nickname) {
 async function getOrCreateProfile(uid) {
   const profileRef = db.doc(`player_profiles/${uid}`);
   const existing = await profileRef.get();
-  if (existing.exists) return existing.data();
+  if (existing.exists && normalizeNickname(existing.data().nickname)) return existing.data();
 
   for (let attempt = 0; attempt < 12; attempt++) {
     const nickname = createFunnyNickname();
@@ -259,9 +517,16 @@ async function getOrCreateProfile(uid) {
         transaction.get(profileRef),
         transaction.get(reservationRef),
       ]);
-      if (profileSnapshot.exists) return profileSnapshot.data();
+      const currentProfile = profileSnapshot.exists ? profileSnapshot.data() : null;
+      if (currentProfile && normalizeNickname(currentProfile.nickname)) return currentProfile;
       if (reservationSnapshot.exists) return null;
       const now = Timestamp.now();
+      if (currentProfile) {
+        const migratedProfile = {...currentProfile, nickname, isCustom:false, updatedAt:now};
+        transaction.create(reservationRef, {uid, nickname, createdAt:now});
+        transaction.update(profileRef, {nickname, isCustom:false, updatedAt:now});
+        return migratedProfile;
+      }
       const profile = {
         uid,
         nickname,
@@ -269,6 +534,8 @@ async function getOrCreateProfile(uid) {
         createdAt:now,
         updatedAt:now,
         lastNicknameChangeAt:null,
+        ...defaultEconomy(),
+        energyUpdatedAt:now,
       };
       transaction.create(reservationRef, {uid, nickname, createdAt:now});
       transaction.create(profileRef, profile);
@@ -361,13 +628,14 @@ function requireUid(request) {
   return request.auth.uid;
 }
 
-function serializePlayerProfile(profile) {
+function serializePlayerProfile(profile, economy = null) {
   const lastNicknameChangeAtMs = profile.lastNicknameChangeAt?.toMillis?.() || 0;
   const change = canChangeNickname({
     isCustom:profile.isCustom,
     lastNicknameChangeAtMs,
   });
   return {
+    serverNow:Date.now(),
     nickname:profile.nickname,
     isCustom:Boolean(profile.isCustom),
     lastNicknameChangeAtMs,
@@ -375,7 +643,95 @@ function serializePlayerProfile(profile) {
     canChangeNickname:change.allowed,
     seasonBadges:Array.isArray(profile.seasonBadges) ? profile.seasonBadges : [],
     seasonResults:Array.isArray(profile.seasonResults) ? profile.seasonResults : [],
+    rankedEnergy:economy?.energy ?? (Number.isInteger(profile.rankedEnergy) ? Math.min(ENERGY_MAX, Math.max(0, profile.rankedEnergy)) : ENERGY_MAX),
+    nextEnergyAt:economy?.nextRefillAtMs ?? null,
+    sparkBalance:Math.max(0, Number(profile.sparkBalance) || 0),
+    ownedItems:Array.isArray(profile.ownedItems) ? profile.ownedItems : [],
+    equippedItems:profile.equippedItems && typeof profile.equippedItems === 'object' ? profile.equippedItems : {},
+    shopCatalog:SHOP_CATALOG,
+    dailyMissions:economy?.dailyMissions || [],
+    weeklyMissions:economy?.weeklyMissions || [],
   };
+}
+
+async function refreshPlayerEconomy(uid, now = Timestamp.now()) {
+  const profileRef = db.doc(`player_profiles/${uid}`);
+  const day = getKstDay(now.toDate());
+  const week = getKstWeek(now.toDate());
+  const dailyRef = db.doc(`mission_progress/${uid}_daily_${day}`);
+  const weeklyRef = db.doc(`mission_progress/${uid}_weekly_${week}`);
+  const result = await db.runTransaction(async transaction => {
+    const [profileSnapshot, dailySnapshot, weeklySnapshot] = await Promise.all([
+      transaction.get(profileRef), transaction.get(dailyRef), transaction.get(weeklyRef),
+    ]);
+    const profile = profileSnapshot.data();
+    const energy = refillEnergy(energyState(profile, now.toMillis()), now.toMillis());
+    transaction.update(profileRef, energyUpdate(energy, now));
+    return {
+      profile:{...profile, rankedEnergy:energy.energy, energyUpdatedAt:Timestamp.fromMillis(energy.updatedAtMs)},
+      energy:energy.energy,
+      nextRefillAtMs:energy.nextRefillAtMs,
+      dailyMissions:serializeMissions(
+        dailySnapshot.exists ? dailySnapshot.data() : emptyMissionProgress(day, 'daily'), DAILY_MISSIONS,
+      ),
+      weeklyMissions:serializeMissions(
+        weeklySnapshot.exists ? weeklySnapshot.data() : emptyMissionProgress(week, 'weekly'), WEEKLY_MISSIONS,
+      ),
+    };
+  });
+  return result;
+}
+
+function energyState(profile, nowMs) {
+  return {
+    energy:Number.isInteger(profile?.rankedEnergy) ? profile.rankedEnergy : ENERGY_MAX,
+    updatedAtMs:profile?.energyUpdatedAt?.toMillis?.() || nowMs,
+  };
+}
+
+function energyUpdate(energy, now) {
+  return {
+    rankedEnergy:energy.energy,
+    energyUpdatedAt:Timestamp.fromMillis(energy.updatedAtMs),
+    updatedAt:now,
+  };
+}
+
+function missionProgressData(uid, progress, now) {
+  const {reward:unusedReward, ...stored} = progress;
+  return {...stored, uid, updatedAt:now};
+}
+
+async function verifyAdMobCallback(rawQuery) {
+  const marker = '&signature=';
+  const signatureIndex = rawQuery.indexOf(marker);
+  if (signatureIndex < 1) return false;
+  const content = rawQuery.slice(0, signatureIndex);
+  const signed = rawQuery.slice(signatureIndex + marker.length);
+  const keyMarker = '&key_id=';
+  const keyIndex = signed.indexOf(keyMarker);
+  if (keyIndex < 1) return false;
+  const signature = decodeBase64Url(signed.slice(0, keyIndex));
+  const keyId = signed.slice(keyIndex + keyMarker.length);
+  const keys = await getAdMobKeys();
+  const pem = keys.get(keyId);
+  return Boolean(pem && verifySignature('sha256', Buffer.from(content, 'utf8'), pem, signature));
+}
+
+async function getAdMobKeys(now = Date.now()) {
+  if (admobKeysCache.expiresAt > now) return admobKeysCache.keys;
+  const response = await fetch(ADMOB_KEYS_URL);
+  if (!response.ok) throw new Error('admob-key-fetch-failed');
+  const data = await response.json();
+  const keys = new Map((data.keys || []).map(key => [String(key.keyId), key.pem]));
+  if (!keys.size) throw new Error('admob-keys-empty');
+  admobKeysCache = {expiresAt:now + 24 * 60 * 60 * 1000, keys};
+  return keys;
+}
+
+function decodeBase64Url(value) {
+  const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='), 'base64');
 }
 
 async function syncClosedSeasonBadges(uid, profile) {

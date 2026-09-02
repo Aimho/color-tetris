@@ -1,7 +1,7 @@
 {
   "name": "color-bomb",
   "private": true,
-  "version": "0.4.0",
+  "version": "1.0.0",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
@@ -34,6 +34,7 @@
   "dependencies": {
     "@capacitor-firebase/app-check": "^7.5.0",
     "@capacitor-firebase/authentication": "^7.5.0",
+    "@capacitor-community/admob": "^7.2.0",
     "@sentry/browser": "^10.68.0",
     "firebase": "^12.16.0"
   }

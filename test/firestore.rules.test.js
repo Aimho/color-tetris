@@ -87,9 +87,6 @@ test('랭킹 실행권과 시즌 점수는 클라이언트가 직접 쓸 수 없
   await assertFails(setDoc(doc(db, 'ranked_runs/fake-run'), {
     uid:'ranked-player', status:'active',
   }));
-  await assertFails(setDoc(doc(db, 'ranked_energy/ranked-player'), {
-    uid:'ranked-player', balance:3,
-  }));
   await assertFails(setDoc(doc(db, 'ranked_run_requests/ranked-player_request'), {
     runId:'fake-run',
   }));

@@ -18,14 +18,12 @@ import {
 import { createOperationGuard } from './operation-guard.js';
 import { createScoreLedger } from './ranking-model.js';
 import { createRankedRandom } from '../functions/shared/ranked-random.js';
-import {
-  createRankedEnergyClock,
-  formatEnergyCountdown,
-  projectRankedEnergy,
-} from './ranked-energy.js';
+import { SHOP_CATALOG } from '../functions/shared/economy-contract.js';
 import { setupPwa } from './pwa.js';
 import { createGameResult, createShareText } from './game-result.js';
 import { captureClientError, initializeSentry } from './sentry.js';
+import { roundRectPath } from './canvas-path.js';
+import { cloneSerializable } from './platform-compat.js';
 import {
   acknowledgeSeasonResult,
   formatSeasonResultSummary,
@@ -89,6 +87,8 @@ const resultRank = document.querySelector('#resultRank');
 const homeRanking = document.querySelector('#homeRanking');
 const homeLeaderboardList = document.querySelector('#homeLeaderboardList');
 const rankingButton = document.querySelector('#rankingButton');
+const missionButton = document.querySelector('#missionButton');
+const shopButton = document.querySelector('#shopButton');
 const rankingCloseButton = document.querySelector('#rankingCloseButton');
 const rankingMyBest = document.querySelector('#rankingMyBest');
 const buildVersion = document.querySelector('#buildVersion');
@@ -96,10 +96,11 @@ const shareButton = document.querySelector('#shareButton');
 const homeButton = document.querySelector('#homeButton');
 const startButton = document.querySelector('#startButton');
 const rankedStartButton = document.querySelector('#rankedStartButton');
+const rankedEnergyPanel = document.querySelector('#rankedEnergyPanel');
 const rankedEnergyValue = document.querySelector('#rankedEnergyValue');
 const rankedEnergyTimer = document.querySelector('#rankedEnergyTimer');
-const rankedEnergyActions = document.querySelector('#rankedEnergyActions');
 const homeHelpButton = document.querySelector('#homeHelpButton');
+const rewardedEnergyButton = document.querySelector('#rewardedEnergyButton');
 const pauseButton = document.querySelector('#pauseButton');
 const profileButton = document.querySelector('#profileButton');
 const profileNotificationDot = document.querySelector('#profileNotificationDot');
@@ -108,17 +109,26 @@ const seasonResultSummary = document.querySelector('#seasonResultSummary');
 const seasonResultButton = document.querySelector('#seasonResultButton');
 const settingsButton = document.querySelector('#settingsButton');
 const profilePanel = document.querySelector('#profilePanel');
+const labPanel = document.querySelector('#labPanel');
+const labPanelKicker = document.querySelector('#labPanelKicker');
+const labPanelTitle = document.querySelector('#labPanelTitle');
 const settingsPanel = document.querySelector('#settingsPanel');
 const profileNickname = document.querySelector('#profileNickname');
 const profileConnection = document.querySelector('#profileConnection');
 const profileStatus = document.querySelector('#profileStatus');
+const labStatus = document.querySelector('#labStatus');
 const nicknameForm = document.querySelector('#nicknameForm');
 const nicknameInput = document.querySelector('#nicknameInput');
 const nicknameHint = document.querySelector('#nicknameHint');
 const socialConnectButton = document.querySelector('#socialConnectButton');
 const themeOptions = document.querySelector('#themeOptions');
+const sparkBalance = document.querySelector('#sparkBalance');
+const missionList = document.querySelector('#missionList');
+const missionTabs = [...document.querySelectorAll('[data-mission-tab]')];
+const shopList = document.querySelector('#shopList');
 const settingsForm = document.querySelector('#settingsForm');
 const openControlsButton = document.querySelector('#openControlsButton');
+const privacyOptionsButton = document.querySelector('#privacyOptionsButton');
 const resetLocalDataButton = document.querySelector('#resetLocalDataButton');
 const settingsVersion = document.querySelector('#settingsVersion');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
@@ -146,6 +156,7 @@ let gameMode = GAME_MODES.PRACTICE;
 const inputPlatform = detectPlatform({
   native:isNativeApp,
 });
+const isNativeAndroid = globalThis.Capacitor?.getPlatform?.() === 'android';
 let runPlatform = inputPlatform;
 const rankedRuntimePlatform = 'app';
 initializeSentry({
@@ -163,12 +174,17 @@ let pieceSerialCounter = 0;
 let settings = readSettings();
 let prefersReducedMotion = shouldReduceMotion();
 let serverProfile = null;
+let selectedMissionPeriod = 'daily';
+let energyTimerId = null;
+let economyRefreshPromise = null;
+let serverClockOffsetMs = 0;
+let nextEnergyRefreshAllowedAt = 0;
+let rewardedEnergyPendingUntil = 0;
 let currentGameResult = null;
-let rankedEnergyClock = null;
 const rankedStartGuard = createOperationGuard();
 const e2eMode = import.meta.env.VITE_E2E === 'true';
 
-buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
+buildVersion.textContent = `VERSION ${__APP_VERSION__}`;
 settingsVersion.textContent = `COLOR BOMB · VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 
 window.addEventListener('vite:preloadError', event => {
@@ -244,6 +260,9 @@ function renderLocalProfile() {
 }
 
 function renderServerProfile(nextProfile) {
+  if (Number.isFinite(nextProfile.serverNow)) {
+    serverClockOffsetMs = nextProfile.serverNow - Date.now();
+  }
   serverProfile = nextProfile;
   profileNickname.textContent = nextProfile.nickname;
   nicknameInput.value = nextProfile.nickname;
@@ -257,6 +276,112 @@ function renderServerProfile(nextProfile) {
     ? '한글·영문·숫자로 2~12자까지 입력할 수 있습니다.'
     : `${new Date(nextProfile.nextNicknameChangeAt).toLocaleString('ko-KR')} 이후 다시 변경할 수 있습니다.`;
   rememberPlayerName(nextProfile.nickname);
+  applyServerCosmetics(nextProfile.equippedItems);
+  renderEnergy(nextProfile);
+  renderMissions();
+  renderShop();
+}
+
+function applyServerCosmetics(equipped = {}) {
+  for (const slot of ['boardTheme', 'blockSkin', 'clearEffect', 'lobbyBgm', 'profileFrame']) {
+    if (equipped[slot]) document.body.dataset[slot] = equipped[slot];
+    else delete document.body.dataset[slot];
+  }
+  music?.setTheme(equipped.lobbyBgm);
+  draw();
+}
+
+function currentServerTime() {
+  return Date.now() + serverClockOffsetMs;
+}
+
+function renderEnergy(nextProfile = serverProfile) {
+  const energy = nextProfile ? Math.min(3, Math.max(0, Number(nextProfile.rankedEnergy) || 0)) : 3;
+  const rewardPending = currentServerTime() < rewardedEnergyPendingUntil;
+  rankedEnergyValue.textContent = `${'◆ '.repeat(energy)}${'◇ '.repeat(3 - energy)}`.trim();
+  if (!nextProfile) {
+    rankedEnergyTimer.textContent = '서버 연결 중';
+  } else if (energy >= 3 || !nextProfile.nextEnergyAt) {
+    rankedEnergyTimer.textContent = energy >= 3 ? '충전 완료' : '서버 연결 중';
+  } else {
+    const remaining = Math.max(0, nextProfile.nextEnergyAt - currentServerTime());
+    const minutes = Math.floor(remaining / 60_000);
+    const seconds = Math.floor(remaining % 60_000 / 1000);
+    rankedEnergyTimer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')} 후 충전`;
+    if (remaining === 0 && Date.now() >= nextEnergyRefreshAllowedAt) {
+      nextEnergyRefreshAllowedAt = Date.now() + 30_000;
+      refreshEconomyProfile();
+    }
+  }
+  if (energyTimerId) clearInterval(energyTimerId);
+  energyTimerId = setInterval(() => renderEnergy(serverProfile), 1000);
+  rewardedEnergyButton.hidden = !isNativeAndroid || !nextProfile || energy >= 3;
+  rewardedEnergyButton.disabled = !nextProfile || energy >= 3 || rewardPending;
+  rewardedEnergyButton.textContent = rewardPending ? '보상 확인 중…' : '광고 보고 +1';
+  if (isNativeApp && !running) {
+    rankedStartButton.disabled = !nextProfile || energy <= 0;
+    rankedStartButton.innerHTML = energy > 0 ? '랭킹 도전 <span>◆</span>' : '에너지 충전 중 <span>⚡</span>';
+  }
+}
+
+function renderMissions() {
+  const missions = selectedMissionPeriod === 'daily'
+    ? serverProfile?.dailyMissions || []
+    : serverProfile?.weeklyMissions || [];
+  sparkBalance.textContent = `${Number(serverProfile?.sparkBalance || 0).toLocaleString()} SPARK`;
+  missionTabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.missionTab === selectedMissionPeriod)));
+  missionList.replaceChildren(...missions.map(mission => {
+    const row = document.createElement('article');
+    row.className = mission.complete ? 'mission-item complete' : 'mission-item';
+    const copy = document.createElement('div');
+    const label = document.createElement('strong');
+    const progress = document.createElement('small');
+    const reward = document.createElement('b');
+    label.textContent = mission.label;
+    progress.textContent = `${mission.value} / ${mission.target}`;
+    reward.textContent = mission.complete ? '지급 완료' : `+${mission.reward}`;
+    copy.append(label, progress);
+    row.append(copy, reward);
+    return row;
+  }));
+  if (!missions.length) missionList.textContent = '미션 서버에 연결하면 진행도를 확인할 수 있습니다.';
+}
+
+function renderShop() {
+  const owned = new Set(serverProfile?.ownedItems || []);
+  const equipped = new Set(Object.values(serverProfile?.equippedItems || {}));
+  shopList.replaceChildren(...(serverProfile?.shopCatalog || SHOP_CATALOG).map(item => {
+    const row = document.createElement('article');
+    row.className = `shop-item shop-${item.id}`;
+    const swatch = document.createElement('span');
+    swatch.className = 'shop-swatch';
+    const copy = document.createElement('div');
+    const label = document.createElement('strong');
+    const slot = document.createElement('small');
+    const button = document.createElement('button');
+    label.textContent = item.label;
+    slot.textContent = item.slot.replace(/[A-Z]/g, match => ` ${match}`).toUpperCase();
+    button.type = 'button';
+    button.dataset.shopItem = item.id;
+    button.dataset.shopAction = owned.has(item.id) ? 'equip' : 'purchase';
+    button.disabled = !serverProfile || equipped.has(item.id);
+    button.textContent = equipped.has(item.id) ? '장착됨' : owned.has(item.id) ? '장착' : `${item.price} SPARK`;
+    copy.append(label, slot);
+    row.append(swatch, copy, button);
+    return row;
+  }));
+}
+
+async function refreshEconomyProfile() {
+  if (economyRefreshPromise) return economyRefreshPromise;
+  economyRefreshPromise = (async () => {
+    try {
+      const {loadPlayerProfile} = await import('./profile-service.js');
+      renderServerProfile(await loadPlayerProfile());
+    } catch { /* 다음 사용자 동작에서 재시도 */ }
+    finally { economyRefreshPromise = null; }
+  })();
+  return economyRefreshPromise;
 }
 
 function renderSeasonResultNudge(nextProfile) {
@@ -289,9 +414,9 @@ async function refreshSeasonResultNudge() {
   }
 }
 
-async function loadProfilePanel() {
+async function loadProfilePanel(statusElement = profileStatus) {
   renderLocalProfile();
-  profileStatus.textContent = '프로필과 시즌 기록을 불러오는 중…';
+  statusElement.textContent = '플레이어 데이터를 불러오는 중…';
   try {
     const [{loadPlayerProfile, formatSeasonBadge}, {loadTopScores}] = await Promise.all([
       import('./profile-service.js'),
@@ -326,12 +451,16 @@ async function loadProfilePanel() {
     }));
     profile.lastSyncedAt = Date.now();
     try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
-    profileStatus.textContent = `로컬 기록 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')} 동기화`;
+    statusElement.textContent = `동기화 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')}`;
     return true;
   } catch {
-    profileNickname.textContent = savedPlayerName() || '게스트 플레이어';
+    const fallbackName = savedPlayerName() || '게스트 플레이어';
+    profileNickname.textContent = fallbackName;
+    nicknameInput.value = fallbackName;
+    nicknameForm.querySelector('button').disabled = true;
+    nicknameHint.textContent = '서버에 연결되면 닉네임을 변경할 수 있습니다.';
     profileConnection.textContent = '오프라인 · 로컬 기록 표시 중';
-    profileStatus.textContent = profile.lastSyncedAt
+    statusElement.textContent = profile.lastSyncedAt
       ? `마지막 동기화 · ${new Date(profile.lastSyncedAt).toLocaleString('ko-KR')}`
       : '서버 프로필에 연결하지 못했습니다. 로컬 기록은 계속 사용할 수 있습니다.';
     return false;
@@ -372,11 +501,11 @@ async function refreshRankedAvailability() {
   try {
     const { rankedServiceStatus } = await import('./ranked-service.js');
     const status = await rankedServiceStatus();
-    updateRankedEnergy(status.energy);
-    rankedStartButton.disabled = !status.ready;
-    rankedStartButton.innerHTML = status.ready
+    const energy = Number(serverProfile?.rankedEnergy || 0);
+    rankedStartButton.disabled = !status.ready || !serverProfile || energy <= 0;
+    rankedStartButton.innerHTML = status.ready && energy > 0
       ? '랭킹 도전 <span>◆</span>'
-      : status.energy
+      : serverProfile
         ? '에너지 충전 중 <span>⚡</span>'
         : '랭킹 점검 중 <span>◆</span>';
     rankedStartButton.title = status.reason;
@@ -384,32 +513,6 @@ async function refreshRankedAvailability() {
     rankedStartButton.disabled = true;
     rankedStartButton.innerHTML = '랭킹 연결 실패 <span>◆</span>';
     rankedStartButton.title = '랭킹 서버에 연결할 수 없습니다.';
-  }
-}
-
-function updateRankedEnergy(payload) {
-  if (payload) rankedEnergyClock = createRankedEnergyClock(payload);
-  renderRankedEnergy();
-}
-
-function renderRankedEnergy() {
-  const energy = projectRankedEnergy(rankedEnergyClock);
-  if (!energy) {
-    rankedEnergyValue.textContent = '⚡ — / 3';
-    rankedEnergyTimer.textContent = '서버에서 에너지를 확인하고 있어요.';
-    rankedEnergyActions.hidden = true;
-    return;
-  }
-  rankedEnergyValue.textContent = `⚡ ${energy.balance} / ${energy.max}`;
-  rankedEnergyTimer.textContent = energy.balance >= energy.max
-    ? '에너지가 가득 찼어요.'
-    : `다음 충전까지 ${formatEnergyCountdown(energy.remainingMs)}`;
-  rankedEnergyActions.hidden = energy.balance > 0;
-  if (!running && rankedLoading.hidden) {
-    rankedStartButton.disabled = energy.balance <= 0;
-    rankedStartButton.innerHTML = energy.balance > 0
-      ? '랭킹 도전 <span>◆</span>'
-      : '에너지 충전 중 <span>⚡</span>';
   }
 }
 
@@ -465,7 +568,7 @@ function spawn() {
   piecesSpawned++;
   if (isTouchDevice && piecesSpawned <= 3) showGestureHint('탭 회전 · 드래그 이동');
   if (collides(active)) endGame();
-  else lastStableRunState = structuredClone(snapshotRunState());
+  else lastStableRunState = cloneSerializable(snapshotRunState());
 }
 
 function reset(mode = gameMode, session = pendingRankedSession) {
@@ -502,6 +605,8 @@ function reset(mode = gameMode, session = pendingRankedSession) {
   homeButton.hidden = true;
   startButton.hidden = false;
   rankedStartButton.hidden = true;
+  missionButton.hidden = true;
+  shopButton.hidden = true;
   pauseButton.disabled = false;
   lastTime = performance.now(); dropTimer = 0; lockTimer = 0;
   startMusic();
@@ -640,7 +745,7 @@ function restoreRun(snapshot) {
   multiplierBursts = [];
   multiplierDrops = [];
   clearingCells = new Set();
-  lastStableRunState = structuredClone(snapshotRunState());
+  lastStableRunState = cloneSerializable(snapshotRunState());
   document.body.classList.add('playing');
   overlay.classList.remove('visible', 'game-over', 'ranking-view');
   drawRacks();
@@ -913,6 +1018,15 @@ function drawCell(context, x, y, colorIndex, size=CELL, alpha=1, event=null) {
     roundRect(context, px, py, s, s, size*.17); context.fill();
     context.fillStyle = 'rgba(255,255,255,.25)';
     roundRect(context, px+size*.09, py+size*.07, s-size*.18, size*.075, size*.04); context.fill();
+  }
+  if (document.body.dataset.blockSkin === 'crystal') {
+    context.fillStyle = 'rgba(255,255,255,.16)';
+    context.beginPath();
+    context.moveTo(px + s * .12, py + s * .12);
+    context.lineTo(px + s * .88, py + s * .28);
+    context.lineTo(px + s * .55, py + s * .88);
+    context.closePath();
+    context.fill();
   }
   if (settings.colorAssist) {
     const corner = Math.max(3, size * .13);
@@ -1283,8 +1397,8 @@ function drawClearingCells() {
   const pulse = prefersReducedMotion ? .68 : .58 + Math.sin(performance.now() / 55) * .3;
   ctx.save();
   ctx.globalAlpha = pulse;
-  ctx.fillStyle = '#fffbd0';
-  ctx.shadowColor = '#e9f65b';
+  ctx.fillStyle = document.body.dataset.clearEffect === 'pulse' ? '#ffb08d' : '#fffbd0';
+  ctx.shadowColor = document.body.dataset.clearEffect === 'pulse' ? '#ff6542' : '#e9f65b';
   ctx.shadowBlur = 22;
   for (const key of clearingCells) {
     const [x, y] = key.split(',').map(Number);
@@ -1294,7 +1408,7 @@ function drawClearingCells() {
 }
 
 function roundRect(context,x,y,w,h,r) {
-  context.beginPath(); context.roundRect(x,y,w,h,r);
+  roundRectPath(context,x,y,w,h,r);
 }
 
 function draw() {
@@ -1402,6 +1516,8 @@ function openTutorial(startsGame = false) {
   if (running) { paused = true; stopLoop(); stopMusic(); }
   gameShell.inert = true;
   tutorial.hidden = false;
+  tutorialClose.hidden = !startsGame;
+  tutorialClose.innerHTML = '게임 시작 <span>▶</span>';
   tutorialSheet.scrollTop = 0;
   tutorialDismiss.focus({ preventScroll: true });
 }
@@ -1448,6 +1564,8 @@ function endGame() {
   shareButton.hidden = false;
   homeButton.hidden = false;
   rankingButton.hidden = true;
+  missionButton.hidden = true;
+  shopButton.hidden = true;
   overlay.classList.add('visible', 'game-over');
   scoreRecord.hidden = false;
   if (gameMode === GAME_MODES.RANKED) submitCompletedRankedRun(runId, score, level);
@@ -1486,7 +1604,7 @@ async function submitCompletedRankedRun(resultRunId, finalScore, finalLevel) {
       getLeaderboardApi(),
     ]);
     const submission = await submitRankedRun(session.runId, ledger);
-    updateRankedEnergy(submission.energy);
+    await refreshEconomyProfile().catch(() => {});
     const leaderboard = await loadTopScores(session.platform, session.season).catch(() => null);
     nextResult = createGameResult({
       ranked:true,
@@ -1549,6 +1667,7 @@ function ensureAudio() {
   if (!audio || audio.state === 'closed') {
     audio=createAudioContext(window);
     music = audio ? new MusicEngine(audio) : null;
+    music?.setTheme(serverProfile?.equippedItems?.lobbyBgm);
   }
   if (!audio) return null;
   resumeIfSuspended(audio).catch(()=>{});
@@ -1874,11 +1993,14 @@ async function startSelectedMode(mode) {
       const session = await startRankedRun();
       if (!rankedStartGuard.isCurrent(operation)) return;
       pendingRankedSession = session;
-      updateRankedEnergy(session.energy);
+      if (serverProfile) {
+        serverProfile.rankedEnergy = session.remaining;
+        serverProfile.nextEnergyAt = session.nextRefillAt;
+        renderEnergy();
+      }
       runPlatform = pendingRankedSession.platform;
     } catch (error) {
       if (!rankedStartGuard.isCurrent(operation)) return;
-      updateRankedEnergy(error?.details?.energy || error?.customData?.details?.energy);
       setRankedLoading(false);
       returnHome();
       overlayCopy.textContent = error?.message || '랭킹 서버에 연결하지 못했습니다. 연습 모드는 계속 이용할 수 있습니다.';
@@ -1894,6 +2016,18 @@ startButton.addEventListener('click', () => startSelectedMode(GAME_MODES.PRACTIC
 rankedStartButton.addEventListener('click', () => startSelectedMode(GAME_MODES.RANKED));
 homeHelpButton.addEventListener('click', () => openTutorial(false));
 rankingButton.addEventListener('click', openHomeRanking);
+function openEconomyPanel(viewName, opener) {
+  const missions = viewName === 'missions';
+  labPanelKicker.textContent = missions ? 'DAILY / WEEKLY' : 'THEME & CUSTOM';
+  labPanelTitle.textContent = missions ? '미션' : '상점';
+  document.querySelectorAll('[data-lab-view]').forEach(view => {
+    view.hidden = view.dataset.labView !== viewName;
+  });
+  openAppPanel(labPanel, opener);
+  loadProfilePanel(labStatus);
+}
+missionButton.addEventListener('click', () => openEconomyPanel('missions', missionButton));
+shopButton.addEventListener('click', () => openEconomyPanel('custom', shopButton));
 homeButton.addEventListener('click', returnHome);
 profileButton.addEventListener('click', () => {
   openAppPanel(profilePanel, profileButton);
@@ -1945,6 +2079,27 @@ themeOptions.addEventListener('click', event => {
   applyProfileTheme();
   renderLocalProfile();
 });
+missionTabs.forEach(tab => tab.addEventListener('click', () => {
+  selectedMissionPeriod = tab.dataset.missionTab;
+  renderMissions();
+}));
+shopList.addEventListener('click', async event => {
+  const button = event.target.closest('[data-shop-item]');
+  if (!button) return;
+  button.disabled = true;
+  labStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매하는 중…' : '상품을 장착하는 중…';
+  try {
+    const api = await import('./profile-service.js');
+    const nextProfile = button.dataset.shopAction === 'purchase'
+      ? await api.purchasePlayerItem(button.dataset.shopItem)
+      : await api.equipPlayerItem(button.dataset.shopItem);
+    renderServerProfile(nextProfile);
+    labStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매했습니다.' : '상품을 장착했습니다.';
+  } catch (error) {
+    button.disabled = false;
+    labStatus.textContent = error?.message || '상점 요청을 처리하지 못했습니다.';
+  }
+});
 settingsForm.addEventListener('change', event => {
   const input = event.target;
   const value = input.type === 'checkbox' ? input.checked : input.value;
@@ -1955,6 +2110,38 @@ settingsForm.addEventListener('change', event => {
 openControlsButton.addEventListener('click', () => {
   closeAppPanel(settingsPanel);
   openTutorial(false);
+});
+rewardedEnergyButton.addEventListener('click', async () => {
+  rewardedEnergyButton.disabled = true;
+  rewardedEnergyButton.textContent = '광고 준비 중…';
+  try {
+    const {showRewardedEnergyAd, getRewardedEnergyStatus} = await import('./rewarded-energy.js');
+    const request = await showRewardedEnergyAd();
+    rewardedEnergyPendingUntil = Number(request.expiresAt) || Date.now() + 10 * 60_000;
+    rewardedEnergyButton.textContent = '보상 확인 중…';
+    for (let attempt = 0; currentServerTime() < rewardedEnergyPendingUntil; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, attempt < 6 ? 3000 : 15_000));
+      const reward = await getRewardedEnergyStatus(request.requestId);
+      if (Number.isFinite(reward.serverNow)) serverClockOffsetMs = reward.serverNow - Date.now();
+      if (reward.status !== 'pending') {
+        rewardedEnergyPendingUntil = 0;
+        await refreshEconomyProfile();
+        break;
+      }
+    }
+  } catch (error) {
+    overlayCopy.textContent = error?.message || '광고를 불러오지 못했습니다.';
+  } finally {
+    renderEnergy();
+  }
+});
+privacyOptionsButton.addEventListener('click', async () => {
+  try {
+    const {showPrivacyOptions} = await import('./rewarded-energy.js');
+    await showPrivacyOptions();
+  } catch (error) {
+    profileStatus.textContent = error?.message || '개인정보 선택 화면을 열지 못했습니다.';
+  }
 });
 resetLocalDataButton.addEventListener('click', () => {
   const confirmed = globalThis.confirm('기기에 저장된 연습 기록과 설정을 초기화할까요? 서버 랭킹 기록은 삭제되지 않습니다.');
@@ -1997,7 +2184,7 @@ gameShell.addEventListener('contextmenu',e=>e.preventDefault());
 installCanvasInputGuards(canvas);
 window.addEventListener('keydown',e=>{
   if (!resumeDialog.hidden) return;
-  const openPanel = [profilePanel, settingsPanel].find(panel => !panel.hidden);
+  const openPanel = [profilePanel, labPanel, settingsPanel].find(panel => !panel.hidden);
   if (openPanel) {
     if (e.key === 'Escape') { e.preventDefault(); closeAppPanel(openPanel); }
     return;
@@ -2054,10 +2241,12 @@ function discardSavedRun() {
   overlay.classList.remove('game-over', 'ranking-view');
   overlayTitle.innerHTML = '낙하가 끝나면<br />연쇄가 시작된다';
   overlayCopy.textContent = '같은 색 블록을 6칸 이상 연결하세요. 무너진 블록이 새로운 연쇄를 만듭니다.';
-  startButton.innerHTML = '연습하기 <span>▶</span>';
+  startButton.innerHTML = '연습 <span>▶</span>';
   startButton.hidden = false;
   rankedStartButton.hidden = false;
   rankingButton.hidden = false;
+  missionButton.hidden = false;
+  shopButton.hidden = false;
   shareButton.hidden = true;
   homeButton.hidden = true;
   refreshRankedAvailability();
@@ -2077,9 +2266,11 @@ function returnHome() {
   overlayCopy.textContent = '같은 색 블록을 6칸 이상 연결하세요. 무너진 블록이 새로운 연쇄를 만듭니다.';
   scoreRecord.hidden = true;
   startButton.hidden = false;
-  startButton.innerHTML = '연습하기 <span>▶</span>';
+  startButton.innerHTML = '연습 <span>▶</span>';
   rankedStartButton.hidden = false;
   rankingButton.hidden = false;
+  missionButton.hidden = false;
+  shopButton.hidden = false;
   shareButton.hidden = true;
   homeButton.hidden = true;
   currentGameResult = null;
@@ -2164,8 +2355,7 @@ canvas.addEventListener('pointercancel',()=>{ gestureStart=null; });
 canvas.addEventListener('lostpointercapture',()=>{ gestureStart=null; });
 
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
-syncSettingsForm(); draw(); drawRacks(); updateStats(); updateReactor(); applyProfileTheme(); renderLocalProfile();
-setInterval(renderRankedEnergy, 1000);
+syncSettingsForm(); draw(); drawRacks(); updateStats(); updateReactor(); applyProfileTheme(); renderLocalProfile(); renderEnergy(); renderMissions(); renderShop();
 if (!e2eMode) {
   refreshRankedAvailability();
   import('./profile-service.js')

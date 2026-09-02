@@ -45,10 +45,6 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    match /ranked_energy/{userId} {
-      allow read, write: if false;
-    }
-
     match /ranked_runs/{runId} {
       allow read, write: if false;
     }
@@ -58,6 +54,22 @@ service cloud.firestore {
     }
 
     match /ranked_submissions/{runId} {
+      allow read, write: if false;
+    }
+
+    match /mission_progress/{periodId} {
+      allow read, write: if false;
+    }
+
+    match /rewarded_energy_requests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /rewarded_ad_transactions/{transactionId} {
+      allow read, write: if false;
+    }
+
+    match /ranked_completion_events/{runId} {
       allow read, write: if false;
     }
 

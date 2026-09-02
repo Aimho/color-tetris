@@ -2,6 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
+test('구형 Android WebView에서도 게임 화면 높이에 vh 폴백을 사용한다', async () => {
+  const style = await readFile(new URL('../src/style.css', import.meta.url), 'utf8');
+
+  assert.match(style, /:root\s*\{[^}]*--viewport-height:\s*100vh/);
+  assert.match(style, /@supports\s*\(height:\s*100dvh\)\s*\{\s*:root\s*\{\s*--viewport-height:\s*100dvh/);
+  assert.match(style, /body\.playing \.game-shell\s*\{[\s\S]*?height:\s*var\(--viewport-height\)/);
+  assert.match(style, /body\.playing \.board-frame\s*\{[\s\S]*?var\(--viewport-height\)/);
+  assert.match(style, /\.home-ranking ol\s*\{[^}]*calc\(var\(--viewport-height\) \* \.43\)/);
+  assert.equal(style.match(/\d+dvh/g)?.join(','), '100dvh,100dvh');
+});
+
 test('랭킹 초기 상태는 준비 중 대신 로딩 중으로 안내한다', async () => {
   const [html, main] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),
@@ -14,7 +25,7 @@ test('랭킹 초기 상태는 준비 중 대신 로딩 중으로 안내한다', 
 
 test('에너지 응답이 없으면 충전 중으로 오인시키지 않는다', async () => {
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
-  assert.match(main, /status\.energy\s*\?\s*'에너지 충전 중 <span>⚡<\/span>'\s*:\s*'랭킹 점검 중 <span>◆<\/span>'/);
+  assert.match(main, /serverProfile\s*\?\s*'에너지 충전 중 <span>⚡<\/span>'\s*:\s*'랭킹 점검 중 <span>◆<\/span>'/);
   assert.match(main, /랭킹 연결 실패 <span>◆<\/span>/);
 });
 
@@ -138,6 +149,8 @@ test('게임오버는 홈 전용 랭킹 도전 버튼을 표시하지 않는다'
 
   assert.match(endGame, /rankedStartButton\.hidden = true;/);
   assert.match(endGame, /rankingButton\.hidden = true;/);
+  assert.match(endGame, /missionButton\.hidden = true;/);
+  assert.match(endGame, /shopButton\.hidden = true;/);
 });
 
 test('모바일 Chrome의 freeze·resume·focus 생명주기에서도 게임을 안전하게 중단하고 복귀시킨다', async () => {
@@ -190,16 +203,98 @@ test('그래픽 테마는 가로 스크롤 카드로 선택한다', async () => 
   assert.match(main, /theme === 'neon'/);
 });
 
-test('홈은 서버 기준 랭킹 에너지와 충전 대기 UI를 표시한다', async () => {
+test('홈은 프로필 서버 기준 랭킹 에너지와 광고 충전 UI를 표시한다', async () => {
   const [html, main, service] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),
     readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/ranked-service.js', import.meta.url), 'utf8'),
   ]);
   assert.match(html, /id="rankedEnergyValue">⚡ — \/ 3/);
-  assert.match(html, /id="rankedEnergyActions" hidden/);
+  assert.match(html, /id="rewardedEnergyButton"[^>]*hidden/);
   assert.match(html, /광고 보고 \+1/);
-  assert.match(main, /다음 충전까지 \$\{formatEnergyCountdown\(energy\.remainingMs\)\}/);
+  assert.match(main, /nextProfile\.nextEnergyAt - currentServerTime\(\)/);
+  assert.match(main, /nextEnergyRefreshAllowedAt = Date\.now\(\) \+ 30_000/);
+  assert.match(main, /후 충전/);
   assert.match(main, /에너지 충전 중 <span>⚡<\/span>/);
-  assert.match(service, /httpsCallable\(functions, 'getRankedEnergy'/);
+  assert.doesNotMatch(service, /httpsCallable\(functions, 'getRankedEnergy'/);
+});
+
+test('서버 시계와 구형 WebView에서도 에너지와 상점 테마가 안전하게 표시된다', async () => {
+  const [main, functions, style] = await Promise.all([
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../functions/index.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/style.css', import.meta.url), 'utf8'),
+  ]);
+  assert.match(functions, /serverNow:Date\.now\(\)/);
+  assert.match(main, /serverClockOffsetMs = nextProfile\.serverNow - Date\.now\(\)/);
+  assert.match(style, /body\[data-theme="ember"\]\s*\{\s*--acid:\s*#[0-9a-f]+/i);
+  assert.match(style, /body\[data-theme="aurora"\]\s*\{\s*--acid:\s*#[0-9a-f]+/i);
+  assert.match(style, /@supports \(color: color-mix/);
+});
+
+test('홈은 랭킹·미션·상점을 명확히 분리하고 연습을 보조 링크로 제공한다', async () => {
+  const [html, style] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/style.css', import.meta.url), 'utf8'),
+  ]);
+  assert.ok(html.indexOf('id="rankedStartButton"') < html.indexOf('id="startButton"'));
+  assert.match(html, /id="missionButton"[^>]*>미션/);
+  assert.match(html, /id="shopButton"[^>]*>상점/);
+  assert.match(html, /id="startButton"[^>]*>에너지 없이 연습하기/);
+  assert.doesNotMatch(html, />LAB</);
+  assert.match(style, /#rankedStartButton\s*\{[^}]*flex-basis:\s*100%/);
+});
+
+test('에너지가 가득 차면 광고 충전 버튼을 숨긴다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /rewardedEnergyButton\.hidden = !isNativeAndroid \|\| !nextProfile \|\| energy >= 3/);
+  assert.doesNotMatch(main, /에너지 충전 완료['"]/);
+});
+
+test('광고 보상 콜백이 지연되는 동안 같은 광고를 다시 재생하지 않는다', async () => {
+  const [main, rewarded, functions] = await Promise.all([
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/rewarded-energy.js', import.meta.url), 'utf8'),
+    readFile(new URL('../functions/index.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(main, /rewardedEnergyPendingUntil = Number\(request\.expiresAt\)/);
+  assert.match(main, /energy >= 3 \|\| rewardPending/);
+  assert.match(main, /currentServerTime\(\) < rewardedEnergyPendingUntil/);
+  assert.match(main, /attempt < 6 \? 3000 : 15_000/);
+  assert.match(main, /reward\.status !== 'pending'/);
+  assert.doesNotMatch(main, /serverProfile\?\.rankedEnergy[^\n]*> previous/);
+  assert.match(rewarded, /request\.shown \|\| stored\?\.requestId === request\.requestId/);
+  assert.match(rewarded, /color-bomb:rewarded-energy-pending/);
+  assert.match(functions, /getRewardedEnergyRequestStatus/);
+  assert.match(functions, /markRewardedEnergyRequestShown/);
+  assert.match(functions, /cancelRewardedEnergyRequest/);
+  assert.match(rewarded, /cancelRewardRequest\(\{requestId:request\.requestId\}\)/);
+});
+
+test('도움말의 하단 시작 버튼은 게임 시작 흐름에서만 보인다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /tutorialClose\.hidden = !startsGame/);
+  assert.match(main, /tutorialClose\.innerHTML = '게임 시작 <span>▶<\/span>'/);
+});
+
+test('마이페이지와 LAB은 기록과 보상 기능을 분리한다', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const profile = html.match(/id="profilePanel"[\s\S]*?<\/section>\s*<section class="app-panel" id="labPanel"/)?.[0] ?? '';
+  const lab = html.match(/id="labPanel"[\s\S]*?<\/section>\s*<section class="app-panel" id="settingsPanel"/)?.[0] ?? '';
+  assert.doesNotMatch(profile, /id="themeOptions"|id="missionList"|id="shopList"/);
+  assert.match(lab, /id="themeOptions"/);
+  assert.match(lab, /id="missionList"/);
+  assert.match(lab, /id="shopList"/);
+});
+
+test('닉네임이 없는 구버전 프로필은 자동 닉네임으로 마이그레이션한다', async () => {
+  const [server, main] = await Promise.all([
+    readFile(new URL('../functions/index.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+  ]);
+  const getOrCreate = server.match(/async function getOrCreateProfile\(uid\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.match(getOrCreate, /existing\.exists && normalizeNickname\(existing\.data\(\)\.nickname\)/);
+  assert.match(getOrCreate, /transaction\.update\(profileRef, \{nickname, isCustom:false, updatedAt:now\}\)/);
+  assert.match(main, /nicknameInput\.value = fallbackName/);
+  assert.match(main, /서버에 연결되면 닉네임을 변경할 수 있습니다/);
 });

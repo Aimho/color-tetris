@@ -1,8 +1,10 @@
 # COLOR BOMB 유료화 및 장기 콘텐츠 기획
 
-> 상태: 검토용 문서  
+> 상태: 일부 확정
 > 작성일: 2026-07-23  
-> 구현 여부: 미정
+> 확정일: 2026-08-26
+
+확정 범위와 구현 순서는 [`update-plan/08-missions-shop-ranked-energy.md`](update-plan/08-missions-shop-ranked-energy.md)를 따른다. 일일·주간 미션, `SPARK` 커스터마이징 상점, 랭크 에너지와 보상형 광고를 진행한다. 시즌 패스와 피버 타임은 제외하고 특수 블록과 클랜·길드는 보류한다.
 
 ## 기본 원칙
 

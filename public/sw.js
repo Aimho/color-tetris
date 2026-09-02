@@ -1,4 +1,4 @@
-const CACHE = 'color-bomb-v0.4.0';
+const CACHE = 'color-bomb-v1.0.0';
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', event => {
