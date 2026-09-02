@@ -22,6 +22,8 @@ import { SHOP_CATALOG } from '../functions/shared/economy-contract.js';
 import { setupPwa } from './pwa.js';
 import { createGameResult, createShareText } from './game-result.js';
 import { captureClientError, initializeSentry } from './sentry.js';
+import { roundRectPath } from './canvas-path.js';
+import { cloneSerializable } from './platform-compat.js';
 import {
   acknowledgeSeasonResult,
   formatSeasonResultSummary,
@@ -179,7 +181,7 @@ let currentGameResult = null;
 const rankedStartGuard = createOperationGuard();
 const e2eMode = import.meta.env.VITE_E2E === 'true';
 
-buildVersion.textContent = `VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
+buildVersion.textContent = `VERSION ${__APP_VERSION__}`;
 settingsVersion.textContent = `COLOR BOMB · VER ${__APP_VERSION__} · BUILD ${__BUILD_ID__}`;
 
 window.addEventListener('vite:preloadError', event => {
@@ -555,7 +557,7 @@ function spawn() {
   piecesSpawned++;
   if (isTouchDevice && piecesSpawned <= 3) showGestureHint('탭 회전 · 드래그 이동');
   if (collides(active)) endGame();
-  else lastStableRunState = structuredClone(snapshotRunState());
+  else lastStableRunState = cloneSerializable(snapshotRunState());
 }
 
 function reset(mode = gameMode, session = pendingRankedSession) {
@@ -732,7 +734,7 @@ function restoreRun(snapshot) {
   multiplierBursts = [];
   multiplierDrops = [];
   clearingCells = new Set();
-  lastStableRunState = structuredClone(snapshotRunState());
+  lastStableRunState = cloneSerializable(snapshotRunState());
   document.body.classList.add('playing');
   overlay.classList.remove('visible', 'game-over', 'ranking-view');
   drawRacks();
@@ -1395,7 +1397,7 @@ function drawClearingCells() {
 }
 
 function roundRect(context,x,y,w,h,r) {
-  context.beginPath(); context.roundRect(x,y,w,h,r);
+  roundRectPath(context,x,y,w,h,r);
 }
 
 function draw() {

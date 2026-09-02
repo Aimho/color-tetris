@@ -15,6 +15,7 @@ import {
   readPendingRankedRun,
   rememberPendingRankedRun,
 } from './pending-ranked.js';
+import { createRequestId } from './platform-compat.js';
 
 const functions = getFunctions(app, 'asia-northeast3');
 const startRun = httpsCallable(functions, 'startRankedRunV2', {limitedUseAppCheckTokens:true});
@@ -69,7 +70,7 @@ function accountAlreadyConnectedError() {
 }
 
 export async function startRankedRun(options = {}) {
-  const {requestId = crypto.randomUUID()} = typeof options === 'string'
+  const {requestId = createRequestId()} = typeof options === 'string'
     ? {requestId:options}
     : options;
   if (!appCheck) throw new Error('랭킹 서버 보호 설정이 필요합니다.');

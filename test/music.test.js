@@ -17,3 +17,14 @@ test('높은 레벨에서는 음표 밀도와 긴장 레이어가 증가한다',
   assert.ok(urgent.hatEvery > 0);
   assert.equal(urgent.tension, true);
 });
+
+test('Array.findLast가 없는 구형 WebView에서도 음악 프로필을 선택한다', () => {
+  const originalFindLast = Array.prototype.findLast;
+  try {
+    Array.prototype.findLast = undefined;
+    assert.equal(getMusicProfile(10).bpm, 124);
+    assert.equal(getMusicProfile(20).bpm, 144);
+  } finally {
+    Array.prototype.findLast = originalFindLast;
+  }
+});

@@ -5,7 +5,10 @@ const PROFILES = [
   { minLevel: 15, bpm: 144, pulseEvery: 1, hatEvery: 1, tension: true },
 ];
 export function getMusicProfile(level) {
-  return PROFILES.findLast(profile => level >= profile.minLevel) || PROFILES[0];
+  for (let index = PROFILES.length - 1; index >= 0; index -= 1) {
+    if (level >= PROFILES[index].minLevel) return PROFILES[index];
+  }
+  return PROFILES[0];
 }
 
 export class MusicEngine {

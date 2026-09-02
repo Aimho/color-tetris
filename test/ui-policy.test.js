@@ -2,6 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
+test('구형 Android WebView에서도 게임 화면 높이에 vh 폴백을 사용한다', async () => {
+  const style = await readFile(new URL('../src/style.css', import.meta.url), 'utf8');
+
+  assert.match(style, /:root\s*\{[^}]*--viewport-height:\s*100vh/);
+  assert.match(style, /@supports\s*\(height:\s*100dvh\)\s*\{\s*:root\s*\{\s*--viewport-height:\s*100dvh/);
+  assert.match(style, /body\.playing \.game-shell\s*\{[\s\S]*?height:\s*var\(--viewport-height\)/);
+  assert.match(style, /body\.playing \.board-frame\s*\{[\s\S]*?var\(--viewport-height\)/);
+  assert.match(style, /\.home-ranking ol\s*\{[^}]*calc\(var\(--viewport-height\) \* \.43\)/);
+  assert.equal(style.match(/\d+dvh/g)?.join(','), '100dvh,100dvh');
+});
+
 test('랭킹 초기 상태는 준비 중 대신 로딩 중으로 안내한다', async () => {
   const [html, main] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),

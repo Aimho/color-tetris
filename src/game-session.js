@@ -1,3 +1,5 @@
+import { cloneSerializable } from './platform-compat.js';
+
 export const GAME_MODES = Object.freeze({
   PRACTICE: 'practice',
   RANKED: 'ranked',
@@ -31,7 +33,7 @@ export function createRunSnapshot(state, now = Date.now()) {
   return {
     version: RUN_SNAPSHOT_VERSION,
     savedAt: now,
-    state: structuredClone(state),
+    state: cloneSerializable(state),
   };
 }
 
