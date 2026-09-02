@@ -177,6 +177,9 @@ let serverProfile = null;
 let selectedMissionPeriod = 'daily';
 let energyTimerId = null;
 let economyRefreshPromise = null;
+let serverClockOffsetMs = 0;
+let nextEnergyRefreshAllowedAt = 0;
+let rewardedEnergyPendingUntil = 0;
 let currentGameResult = null;
 const rankedStartGuard = createOperationGuard();
 const e2eMode = import.meta.env.VITE_E2E === 'true';
@@ -257,6 +260,9 @@ function renderLocalProfile() {
 }
 
 function renderServerProfile(nextProfile) {
+  if (Number.isFinite(nextProfile.serverNow)) {
+    serverClockOffsetMs = nextProfile.serverNow - Date.now();
+  }
   serverProfile = nextProfile;
   profileNickname.textContent = nextProfile.nickname;
   nicknameInput.value = nextProfile.nickname;
@@ -285,25 +291,33 @@ function applyServerCosmetics(equipped = {}) {
   draw();
 }
 
+function currentServerTime() {
+  return Date.now() + serverClockOffsetMs;
+}
+
 function renderEnergy(nextProfile = serverProfile) {
   const energy = nextProfile ? Math.min(3, Math.max(0, Number(nextProfile.rankedEnergy) || 0)) : 3;
+  const rewardPending = currentServerTime() < rewardedEnergyPendingUntil;
   rankedEnergyValue.textContent = `${'◆ '.repeat(energy)}${'◇ '.repeat(3 - energy)}`.trim();
   if (!nextProfile) {
     rankedEnergyTimer.textContent = '서버 연결 중';
   } else if (energy >= 3 || !nextProfile.nextEnergyAt) {
     rankedEnergyTimer.textContent = energy >= 3 ? '충전 완료' : '서버 연결 중';
   } else {
-    const remaining = Math.max(0, nextProfile.nextEnergyAt - Date.now());
+    const remaining = Math.max(0, nextProfile.nextEnergyAt - currentServerTime());
     const minutes = Math.floor(remaining / 60_000);
     const seconds = Math.floor(remaining % 60_000 / 1000);
     rankedEnergyTimer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')} 후 충전`;
-    if (remaining === 0) refreshEconomyProfile();
+    if (remaining === 0 && Date.now() >= nextEnergyRefreshAllowedAt) {
+      nextEnergyRefreshAllowedAt = Date.now() + 30_000;
+      refreshEconomyProfile();
+    }
   }
   if (energyTimerId) clearInterval(energyTimerId);
   energyTimerId = setInterval(() => renderEnergy(serverProfile), 1000);
   rewardedEnergyButton.hidden = !isNativeAndroid || !nextProfile || energy >= 3;
-  rewardedEnergyButton.disabled = !nextProfile || energy >= 3;
-  rewardedEnergyButton.textContent = '광고 보고 +1';
+  rewardedEnergyButton.disabled = !nextProfile || energy >= 3 || rewardPending;
+  rewardedEnergyButton.textContent = rewardPending ? '보상 확인 중…' : '광고 보고 +1';
   if (isNativeApp && !running) {
     rankedStartButton.disabled = !nextProfile || energy <= 0;
     rankedStartButton.innerHTML = energy > 0 ? '랭킹 도전 <span>◆</span>' : '에너지 충전 중 <span>⚡</span>';
@@ -362,9 +376,6 @@ async function refreshEconomyProfile() {
   if (economyRefreshPromise) return economyRefreshPromise;
   economyRefreshPromise = (async () => {
     try {
-      if (serverProfile?.nextEnergyAt && serverProfile.nextEnergyAt <= Date.now()) {
-        serverProfile.nextEnergyAt = Date.now() + 30_000;
-      }
       const {loadPlayerProfile} = await import('./profile-service.js');
       renderServerProfile(await loadPlayerProfile());
     } catch { /* 다음 사용자 동작에서 재시도 */ }
@@ -2104,14 +2115,19 @@ rewardedEnergyButton.addEventListener('click', async () => {
   rewardedEnergyButton.disabled = true;
   rewardedEnergyButton.textContent = '광고 준비 중…';
   try {
-    const {showRewardedEnergyAd} = await import('./rewarded-energy.js');
-    await showRewardedEnergyAd();
+    const {showRewardedEnergyAd, getRewardedEnergyStatus} = await import('./rewarded-energy.js');
+    const request = await showRewardedEnergyAd();
+    rewardedEnergyPendingUntil = Number(request.expiresAt) || Date.now() + 10 * 60_000;
     rewardedEnergyButton.textContent = '보상 확인 중…';
-    const previous = Number(serverProfile?.rankedEnergy || 0);
-    for (let attempt = 0; attempt < 6; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      await refreshEconomyProfile();
-      if (Number(serverProfile?.rankedEnergy || 0) > previous) break;
+    for (let attempt = 0; currentServerTime() < rewardedEnergyPendingUntil; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, attempt < 6 ? 3000 : 15_000));
+      const reward = await getRewardedEnergyStatus(request.requestId);
+      if (Number.isFinite(reward.serverNow)) serverClockOffsetMs = reward.serverNow - Date.now();
+      if (reward.status !== 'pending') {
+        rewardedEnergyPendingUntil = 0;
+        await refreshEconomyProfile();
+        break;
+      }
     }
   } catch (error) {
     overlayCopy.textContent = error?.message || '광고를 불러오지 못했습니다.';

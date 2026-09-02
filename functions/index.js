@@ -360,8 +360,14 @@ export const createRewardedEnergyRequest = onCall(OPTIONS, async request => {
   const result = await db.runTransaction(async transaction => {
     const snapshot = await transaction.get(requestRef);
     const existing = snapshot.data();
-    if (snapshot.exists && existing.status === 'pending' && existing.expiresAt.toMillis() > now.toMillis()) {
-      return {requestId:existing.requestId, userId:uid, expiresAt:existing.expiresAt.toMillis()};
+    if (snapshot.exists && ['pending', 'shown'].includes(existing.status) && existing.expiresAt.toMillis() > now.toMillis()) {
+      return {
+        requestId:existing.requestId,
+        userId:uid,
+        expiresAt:existing.expiresAt.toMillis(),
+        reused:true,
+        shown:existing.status === 'shown',
+      };
     }
     const requestId = randomUUID();
     const expiresAt = Timestamp.fromMillis(now.toMillis() + 10 * 60 * 1000);
@@ -372,9 +378,56 @@ export const createRewardedEnergyRequest = onCall(OPTIONS, async request => {
       expiresAt,
       cleanupAt:Timestamp.fromMillis(now.toMillis() + 24 * 60 * 60 * 1000),
     });
-    return {requestId, userId:uid, expiresAt:expiresAt.toMillis()};
+    return {requestId, userId:uid, expiresAt:expiresAt.toMillis(), reused:false, shown:false};
   });
   return result;
+});
+
+export const markRewardedEnergyRequestShown = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  const requestId = normalizeRequestId(request.data?.requestId);
+  const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
+  await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(requestRef);
+    const reward = snapshot.data();
+    if (!snapshot.exists || reward.requestId !== requestId || reward.status !== 'pending') {
+      throw new HttpsError('failed-precondition', '광고 요청을 표시 상태로 변경할 수 없습니다.');
+    }
+    transaction.update(requestRef, {status:'shown', shownAt:FieldValue.serverTimestamp()});
+  });
+  return {status:'shown'};
+});
+
+export const cancelRewardedEnergyRequest = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  const requestId = normalizeRequestId(request.data?.requestId);
+  const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
+  await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(requestRef);
+    const reward = snapshot.data();
+    if (!snapshot.exists || reward.requestId !== requestId || !['pending', 'shown'].includes(reward.status)) return;
+    transaction.update(requestRef, {status:'cancelled', cancelledAt:FieldValue.serverTimestamp()});
+  });
+  return {status:'cancelled'};
+});
+
+export const getRewardedEnergyRequestStatus = onCall(OPTIONS, async request => {
+  const uid = requireUid(request);
+  const requestId = normalizeRequestId(request.data?.requestId);
+  const snapshot = await db.doc(`rewarded_energy_requests/${uid}`).get();
+  if (!snapshot.exists || snapshot.data().requestId !== requestId) {
+    return {status:'expired', serverNow:Date.now()};
+  }
+  const reward = snapshot.data();
+  const serverNow = Date.now();
+  const expiresAt = reward.expiresAt?.toMillis?.() || 0;
+  return {
+    status:reward.status === 'verified'
+      ? 'verified'
+      : reward.status === 'cancelled' || expiresAt <= serverNow ? 'expired' : 'pending',
+    expiresAt,
+    serverNow,
+  };
 });
 
 export const admobRewardedEnergy = onRequest({
@@ -415,7 +468,7 @@ export const admobRewardedEnergy = onRequest({
       ]);
       if (usedSnapshot.exists) return;
       const rewardRequest = rewardSnapshot.data();
-      if (!rewardSnapshot.exists || rewardRequest.uid !== uid || rewardRequest.requestId !== requestId || rewardRequest.status !== 'pending') {
+      if (!rewardSnapshot.exists || rewardRequest.uid !== uid || rewardRequest.requestId !== requestId || !['pending', 'shown'].includes(rewardRequest.status)) {
         throw new Error('invalid-request');
       }
       const now = Timestamp.now();
@@ -582,6 +635,7 @@ function serializePlayerProfile(profile, economy = null) {
     lastNicknameChangeAtMs,
   });
   return {
+    serverNow:Date.now(),
     nickname:profile.nickname,
     isCustom:Boolean(profile.isCustom),
     lastNicknameChangeAtMs,

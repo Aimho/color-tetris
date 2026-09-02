@@ -212,10 +212,24 @@ test('홈은 프로필 서버 기준 랭킹 에너지와 광고 충전 UI를 표
   assert.match(html, /id="rankedEnergyValue">⚡ — \/ 3/);
   assert.match(html, /id="rewardedEnergyButton"[^>]*hidden/);
   assert.match(html, /광고 보고 \+1/);
-  assert.match(main, /nextProfile\.nextEnergyAt - Date\.now\(\)/);
+  assert.match(main, /nextProfile\.nextEnergyAt - currentServerTime\(\)/);
+  assert.match(main, /nextEnergyRefreshAllowedAt = Date\.now\(\) \+ 30_000/);
   assert.match(main, /후 충전/);
   assert.match(main, /에너지 충전 중 <span>⚡<\/span>/);
   assert.doesNotMatch(service, /httpsCallable\(functions, 'getRankedEnergy'/);
+});
+
+test('서버 시계와 구형 WebView에서도 에너지와 상점 테마가 안전하게 표시된다', async () => {
+  const [main, functions, style] = await Promise.all([
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../functions/index.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/style.css', import.meta.url), 'utf8'),
+  ]);
+  assert.match(functions, /serverNow:Date\.now\(\)/);
+  assert.match(main, /serverClockOffsetMs = nextProfile\.serverNow - Date\.now\(\)/);
+  assert.match(style, /body\[data-theme="ember"\]\s*\{\s*--acid:\s*#[0-9a-f]+/i);
+  assert.match(style, /body\[data-theme="aurora"\]\s*\{\s*--acid:\s*#[0-9a-f]+/i);
+  assert.match(style, /@supports \(color: color-mix/);
 });
 
 test('홈은 랭킹·미션·상점을 명확히 분리하고 연습을 보조 링크로 제공한다', async () => {
@@ -235,6 +249,26 @@ test('에너지가 가득 차면 광고 충전 버튼을 숨긴다', async () =>
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   assert.match(main, /rewardedEnergyButton\.hidden = !isNativeAndroid \|\| !nextProfile \|\| energy >= 3/);
   assert.doesNotMatch(main, /에너지 충전 완료['"]/);
+});
+
+test('광고 보상 콜백이 지연되는 동안 같은 광고를 다시 재생하지 않는다', async () => {
+  const [main, rewarded, functions] = await Promise.all([
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/rewarded-energy.js', import.meta.url), 'utf8'),
+    readFile(new URL('../functions/index.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(main, /rewardedEnergyPendingUntil = Number\(request\.expiresAt\)/);
+  assert.match(main, /energy >= 3 \|\| rewardPending/);
+  assert.match(main, /currentServerTime\(\) < rewardedEnergyPendingUntil/);
+  assert.match(main, /attempt < 6 \? 3000 : 15_000/);
+  assert.match(main, /reward\.status !== 'pending'/);
+  assert.doesNotMatch(main, /serverProfile\?\.rankedEnergy[^\n]*> previous/);
+  assert.match(rewarded, /request\.shown \|\| stored\?\.requestId === request\.requestId/);
+  assert.match(rewarded, /color-bomb:rewarded-energy-pending/);
+  assert.match(functions, /getRewardedEnergyRequestStatus/);
+  assert.match(functions, /markRewardedEnergyRequestShown/);
+  assert.match(functions, /cancelRewardedEnergyRequest/);
+  assert.match(rewarded, /cancelRewardRequest\(\{requestId:request\.requestId\}\)/);
 });
 
 test('도움말의 하단 시작 버튼은 게임 시작 흐름에서만 보인다', async () => {
