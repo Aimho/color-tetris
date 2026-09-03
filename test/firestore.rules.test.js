@@ -109,3 +109,17 @@ test('프로필은 본인만 읽고 닉네임 예약과 프로필 쓰기는 서�
   await assertFails(setDoc(doc(alice, 'player_profiles/alice'), {nickname:'바꾼폭탄001'}));
   await assertFails(setDoc(doc(alice, 'nickname_reservations/abc'), {uid:'alice'}));
 });
+
+test('삭제 요청이 접수된 계정은 레거시 점수 쓰기와 프로필 읽기가 차단된다', { skip: !emulatorEnabled }, async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'player_profiles/deleting-player'), {nickname:'삭제대기폭탄'});
+    await setDoc(doc(db, 'account_deletion_requests/deleting-player'), {status:'pending'});
+  });
+  const db = environment.authenticatedContext('deleting-player').firestore();
+  await assertFails(getDoc(doc(db, 'player_profiles/deleting-player')));
+  await assertFails(setDoc(doc(db, 'best_scores/deleting-player'), {
+    name:'삭제대기폭탄', score:100, level:1, ruleVersion:2,
+    createdAt:serverTimestamp(), updatedAt:serverTimestamp(),
+  }));
+});

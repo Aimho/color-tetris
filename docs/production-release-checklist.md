@@ -1,8 +1,8 @@
 # COLOR BOMB 프로덕션 출시 준비 체크리스트
 
-최종 갱신: 2026-09-02  
+최종 갱신: 2026-09-03  
 대상 앱: `com.aimho.games.colorbomb`  
-작업 브랜치: `feature/version-6`
+기준 브랜치: `main` (`feature/version-6` 후속 출시 준비 변경 작업 중)
 
 ## 현재 상태 요약
 
@@ -14,6 +14,7 @@
 - [x] WebView 호환 수정 사항을 최종 검증한다.
 - [x] 정식 COLOR BOMB 앱 아이콘과 AimHo 스플래시를 Android 리소스에 반영한다.
 - [x] 프로덕션용 새 버전을 `versionCode 8`, `versionName 1.0.0`으로 확정한다.
+- [x] 프로덕션 액세스 신청을 제출했다. (Play Console 검토 중)
 
 > 정식 아이콘이나 현재 미커밋 수정 사항을 포함하려면 기존 테스트 AAB를 그대로 승격하지 말고 새 AAB를 만든다. Play에 이미 업로드된 최고 코드가 7이면 새 빌드는 `versionCode 8` 이상이어야 한다.
 
@@ -31,7 +32,8 @@
 
 ## 2. 출시 빌드 확정
 
-- [ ] 미커밋 변경을 리뷰하고 커밋한다.
+- [x] 계정 삭제 후속 변경의 보안·구조 리뷰를 완료한다.
+- [ ] 계정 삭제 후속 변경을 커밋한다.
 - [x] 정식 버전 이름을 `1.0.0`으로 설정한다.
 - [x] Play Console 최고 업로드 코드 7을 확인하고 새 `versionCode`를 8로 설정한다.
 - [x] 앱 이름, 아이콘, 라운드 아이콘, 적응형 아이콘과 AimHo 스플래시 리소스를 생성하고 시각 검수한다.
@@ -43,24 +45,24 @@
   - `ADMOB_APP_ID`
   - Functions의 `ADMOB_REWARDED_AD_UNIT_ID`
 - [ ] 기존 비공개 테스트 앱과 같은 업로드 키 및 Play App Signing 연결을 사용한다.
-- [ ] 서명 비밀 4개를 로컬 환경에 설정하고 저장소에는 커밋하지 않는다.
+- [x] 서명 비밀 4개를 로컬 전용 환경 파일로 설정하고 저장소에는 커밋하지 않는다.
   - `COLOR_BOMB_UPLOAD_STORE_FILE`
   - `COLOR_BOMB_UPLOAD_STORE_PASSWORD`
   - `COLOR_BOMB_UPLOAD_KEY_ALIAS`
   - `COLOR_BOMB_UPLOAD_KEY_PASSWORD`
 
-> 2026-09-02 확인: 현재 터미널 세션에는 위 서명 환경변수 4개가 모두 없다. Release AAB 빌드 전에 반드시 주입해야 한다.
+> 2026-09-03 확인: `/Users/aimho/Desktop/keys/color-bomb-signing.env`에서 서명값을 주입해 Release AAB 서명에 성공했다.
 
 ## 3. 자동 검증
 
-- [x] `npm test` — 143 통과, Firebase 에뮬레이터 전용 6개 스킵
+- [x] `npm test` — 147 통과, Firebase 에뮬레이터 전용 7개 스킵
 - [x] `npm run test:functions` — 13 통과
-- [x] `npm run test:rules` — 6 통과
-- [x] `npm run test:e2e` — 25 통과
-- [ ] `npm run build`
-- [ ] `npm run cap:sync`
-- [ ] `cd android && ./gradlew clean test lint bundleRelease`
-- [ ] 생성된 AAB가 운영 AdMob 앱 ID를 사용하고 업로드 키로 서명됐는지 확인한다.
+- [x] `npm run test:rules` — 7 통과
+- [x] `npm run test:e2e` — 30 통과
+- [x] `npm run build`
+- [x] `npm run cap:sync`
+- [x] `cd android && ./gradlew clean test lint bundleRelease`
+- [x] 생성된 AAB가 운영 AdMob 앱 ID를 사용하고 업로드 키로 서명됐는지 확인한다.
 - [ ] Play Console의 **사전 출시 보고서**에서 충돌, ANR, 접근성, 보안 경고를 확인한다.
 
 ## 4. 실기기 출시 후보 테스트
@@ -80,7 +82,9 @@
 
 ## 5. 서버와 모니터링
 
-- [ ] Firebase Functions, Firestore 규칙과 인덱스가 출시 후보 코드와 같은 리비전으로 배포돼 있다.
+- [x] 계정 삭제 후속 Functions, Firestore 규칙과 인덱스를 최종 리비전으로 재배포한다.
+
+> 2026-09-03 확인: `preparePlayerAccountDeletion`, `requestPlayerAccountDeletion`, `processPlayerAccountDeletion`을 포함한 Functions와 Firestore 규칙·인덱스, Hosting 배포가 성공했다.
 - [ ] AdMob SSV 콜백 URL, 광고 단위 ID, 사용자 ID와 요청 ID 검증이 운영 환경에서 성공한다.
 - [ ] Firebase App Check의 Android 앱 등록과 인증서 지문이 출시 서명과 일치한다.
 - [ ] Sentry에서 릴리스 구분이 가능하고 테스트 오류가 수집되는지 확인한다.
@@ -89,7 +93,8 @@
 
 ## 6. Play Console 앱 콘텐츠
 
-- [ ] 갱신된 개인정보처리방침과 계정 삭제 안내를 배포하고 공개 URL 접근을 확인한다.
+- [x] 갱신된 개인정보처리방침과 계정 삭제 안내를 배포하고 공개 URL 접근을 확인한다.
+- [x] 앱 내부에서 2단계 확인 후 계정 및 연결 데이터를 삭제 요청할 수 있게 구현한다.
 - [ ] **광고 포함**을 `예`로 선언한다.
 - [ ] 데이터 보안 양식이 실제 SDK와 일치한다.
   - Firebase 익명 UID와 계정 식별자
@@ -138,7 +143,7 @@
 다음 조건이 모두 충족돼야 제출한다.
 
 - [ ] 미커밋 변경이 없고 릴리스 커밋과 태그를 식별할 수 있다.
-- [ ] 전체 자동 검증과 출시 AAB 빌드가 통과한다.
+- [x] 전체 자동 검증과 출시 AAB 빌드가 통과한다.
 - [ ] 실기기에서 광고 SSV와 기존 설치 업데이트가 확인됐다.
 - [ ] Play Console 앱 콘텐츠에 미완료 항목이나 정책 경고가 없다.
 - [ ] Sentry에 미해결 치명 오류가 없다.

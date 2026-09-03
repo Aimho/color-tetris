@@ -1,3 +1,4 @@
+import { signOut } from 'firebase/auth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, appCheck, auth, ensureAuthUser } from './firebase-client.js';
 import { connectGoogleAccount, isSocialAccountConnected } from './ranked-service.js';
@@ -12,6 +13,8 @@ const updateNickname = httpsCallable(functions, 'updatePlayerNickname', {
 });
 const purchaseItem = httpsCallable(functions, 'purchaseShopItem', {limitedUseAppCheckTokens:true});
 const equipItem = httpsCallable(functions, 'equipShopItem', {limitedUseAppCheckTokens:true});
+const prepareAccountDeletion = httpsCallable(functions, 'preparePlayerAccountDeletion', {limitedUseAppCheckTokens:true});
+const requestAccountDeletion = httpsCallable(functions, 'requestPlayerAccountDeletion', {limitedUseAppCheckTokens:true});
 
 export async function loadPlayerProfile() {
   if (!appCheck) throw new Error('프로필 서버 보호 설정이 필요합니다.');
@@ -45,6 +48,22 @@ export async function equipPlayerItem(itemId) {
   await ensureAuthUser();
   await equipItem({itemId});
   return loadPlayerProfile();
+}
+
+export async function preparePlayerAccountDeletion() {
+  if (!appCheck) throw new Error('계정 삭제 서버 보호 설정이 필요합니다.');
+  await ensureAuthUser();
+  const result = await prepareAccountDeletion();
+  if (!result.data?.challenge) throw new Error('계정 삭제 확인을 시작하지 못했습니다.');
+  return result.data.challenge;
+}
+
+export async function requestPlayerAccountDeletion(challenge) {
+  if (!appCheck) throw new Error('계정 삭제 서버 보호 설정이 필요합니다.');
+  const result = await requestAccountDeletion({challenge});
+  if (!result.data?.accepted) throw new Error('계정 삭제 요청을 접수하지 못했습니다.');
+  await signOut(auth).catch(() => {});
+  return true;
 }
 
 function enrichProfile(profile) {

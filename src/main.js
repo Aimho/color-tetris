@@ -129,6 +129,7 @@ const shopList = document.querySelector('#shopList');
 const settingsForm = document.querySelector('#settingsForm');
 const openControlsButton = document.querySelector('#openControlsButton');
 const privacyOptionsButton = document.querySelector('#privacyOptionsButton');
+const deleteAccountButton = document.querySelector('#deleteAccountButton');
 const resetLocalDataButton = document.querySelector('#resetLocalDataButton');
 const settingsVersion = document.querySelector('#settingsVersion');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
@@ -2071,6 +2072,33 @@ socialConnectButton.addEventListener('click', async () => {
     profileStatus.textContent = error?.message || 'Google 계정을 연결하지 못했습니다.';
   }
 });
+deleteAccountButton.addEventListener('click', async () => {
+  const firstConfirmation = globalThis.confirm(
+    '계정과 서버 데이터를 영구 삭제할까요? 랭킹, 미션, SPARK, 구매 항목과 광고 보상 기록은 복구할 수 없습니다.',
+  );
+  if (!firstConfirmation) return;
+  deleteAccountButton.disabled = true;
+  profileStatus.textContent = '안전한 삭제 요청을 준비하는 중…';
+  try {
+    const {preparePlayerAccountDeletion, requestPlayerAccountDeletion} = await import('./profile-service.js');
+    const challenge = await preparePlayerAccountDeletion();
+    const finalConfirmation = globalThis.confirm(
+      '정말 삭제하시겠어요? 요청 후에는 복구할 수 없으며 게스트 계정으로 새로 시작합니다.',
+    );
+    if (!finalConfirmation) {
+      deleteAccountButton.disabled = false;
+      profileStatus.textContent = '계정 삭제를 취소했습니다.';
+      return;
+    }
+    profileStatus.textContent = '계정과 서버 데이터 삭제를 요청하는 중…';
+    await requestPlayerAccountDeletion(challenge);
+    clearLocalUserData();
+    location.reload();
+  } catch (error) {
+    deleteAccountButton.disabled = false;
+    profileStatus.textContent = error?.message || '계정과 데이터를 삭제하지 못했습니다.';
+  }
+});
 themeOptions.addEventListener('click', event => {
   const button = event.target.closest('[data-theme]');
   if (!button) return;
@@ -2146,6 +2174,11 @@ privacyOptionsButton.addEventListener('click', async () => {
 resetLocalDataButton.addEventListener('click', () => {
   const confirmed = globalThis.confirm('기기에 저장된 연습 기록과 설정을 초기화할까요? 서버 랭킹 기록은 삭제되지 않습니다.');
   if (!confirmed) return;
+  clearLocalUserData();
+  location.reload();
+});
+
+function clearLocalUserData() {
   for (const key of [
     'color-tetrix-profile-v1',
     'color-bomb-settings-v1',
@@ -2155,11 +2188,11 @@ resetLocalDataButton.addEventListener('click', () => {
     'color-bomb-run-snapshot-v1',
     'color-bomb-pending-best-score-v1',
     'color-bomb-pending-ranked-run-v1',
+    'color-bomb:rewarded-energy-pending',
   ]) {
     try { localStorage.removeItem(key); } catch { /* private mode */ }
   }
-  location.reload();
-});
+}
 reducedMotionMedia.addEventListener?.('change', () => {
   if (settings.reducedMotion === 'system') {
     prefersReducedMotion = shouldReduceMotion();

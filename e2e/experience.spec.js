@@ -73,6 +73,18 @@ test('설정과 게임 방법 패널을 열고 닫을 수 있다', async ({page}
   expect(runtimeErrors).toEqual([]);
 });
 
+test('마이페이지에서 계정 삭제 위험과 복구 불가 범위를 먼저 확인한다', async ({page}) => {
+  await page.goto('/');
+  await page.locator('#profileButton').click();
+  await expect(page.locator('#deleteAccountButton')).toBeVisible();
+  const confirmation = page.waitForEvent('dialog').then(async dialog => {
+    expect(dialog.message()).toContain('복구할 수 없습니다');
+    await dialog.dismiss();
+  });
+  await Promise.all([confirmation, page.locator('#deleteAccountButton').click()]);
+  await expect(page.locator('#deleteAccountButton')).toBeEnabled();
+});
+
 test('게임 보드의 드래그와 탭 입력이 브라우저 UI 없이 처리된다', async ({page}) => {
   const runtimeErrors = collectRuntimeErrors(page);
   await openPractice(page);

@@ -1,6 +1,7 @@
 import { randomUUID, verify as verifySignature } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
-import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
+import { FieldPath, FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -65,7 +66,7 @@ export const startRankedRun = onCall(OPTIONS, () => {
 export const startRankedRunV2 = onCall(OPTIONS, request => createRankedRun(request, true));
 
 async function createRankedRun(request, energyRequired) {
-  const uid = requireRankedUid(request);
+  const uid = await requireRankedUid(request);
   await getOrCreateProfile(uid);
   const requestId = normalizeRequestId(request.data?.requestId);
   const platform = safeAppPlatform(request.app?.appId);
@@ -79,6 +80,7 @@ async function createRankedRun(request, energyRequired) {
   const requestRef = db.doc(`ranked_run_requests/${uid}_${day}_${requestId}`);
 
   const remaining = await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const [previousRequest, profileSnapshot] = await Promise.all([
       transaction.get(requestRef),
       transaction.get(profileRef),
@@ -115,7 +117,7 @@ async function createRankedRun(request, energyRequired) {
 
 export const submitRankedRun = onCall(OPTIONS, async request => {
   const platform = safeAppPlatform(request.app?.appId);
-  const uid = requireRankedUid(request);
+  const uid = await requireRankedUid(request);
   const runId = String(request.data?.runId || '');
   const playerProfile = await getOrCreateProfile(uid);
   const name = playerProfile.nickname;
@@ -163,6 +165,7 @@ export const submitRankedRun = onCall(OPTIONS, async request => {
   }
 
   const result = await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const runSnapshot = await transaction.get(runRef);
     const run = runSnapshot.data();
     assertUsableRun(run, uid);
@@ -270,11 +273,16 @@ async function processRankedMissionEvent(eventRef) {
     const {uid, day, week, ledger} = completion;
     if (!uid || !day || !week || !ledger) throw new Error('invalid-ranked-completion-event');
     const profileRef = db.doc(`player_profiles/${uid}`);
+    const deletionRef = db.doc(`account_deletion_requests/${uid}`);
     const dailyRef = db.doc(`mission_progress/${uid}_daily_${day}`);
     const weeklyRef = db.doc(`mission_progress/${uid}_weekly_${week}`);
-    const [profileSnapshot, dailySnapshot, weeklySnapshot] = await Promise.all([
-      transaction.get(profileRef), transaction.get(dailyRef), transaction.get(weeklyRef),
+    const [deletionSnapshot, profileSnapshot, dailySnapshot, weeklySnapshot] = await Promise.all([
+      transaction.get(deletionRef), transaction.get(profileRef), transaction.get(dailyRef), transaction.get(weeklyRef),
     ]);
+    if (deletionSnapshot.exists) {
+      transaction.delete(eventRef);
+      return;
+    }
     if (!profileSnapshot.exists) throw new Error('ranked-completion-profile-missing');
     const daily = applyMissionRun(
       dailySnapshot.exists ? dailySnapshot.data() : emptyMissionProgress(day, 'daily'), ledger,
@@ -297,7 +305,7 @@ async function processRankedMissionEvent(eventRef) {
 }
 
 export const getOrCreatePlayerProfile = onCall(OPTIONS, async request => {
-  const uid = requireUid(request);
+  const uid = await requireActiveUid(request);
   const profile = await getOrCreateProfile(uid);
   await Promise.all([
     syncCurrentRankingNames(uid, profile.nickname),
@@ -307,13 +315,102 @@ export const getOrCreatePlayerProfile = onCall(OPTIONS, async request => {
   return serializePlayerProfile(refreshed.profile, refreshed);
 });
 
-export const purchaseShopItem = onCall(OPTIONS, async request => {
+export const preparePlayerAccountDeletion = onCall(OPTIONS, async request => {
+  const uid = await requireActiveUid(request);
+  const challenge = randomUUID();
+  const challengeRef = db.doc(`account_deletion_challenges/${uid}`);
+  await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
+    transaction.set(challengeRef, {
+      challenge,
+      createdAt:FieldValue.serverTimestamp(),
+      expiresAt:Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
+    });
+  });
+  return {challenge};
+});
+
+export const requestPlayerAccountDeletion = onCall(OPTIONS, async request => {
   const uid = requireUid(request);
+  const challenge = normalizeRequestId(request.data?.challenge);
+  const challengeRef = db.doc(`account_deletion_challenges/${uid}`);
+  const deletionRef = db.doc(`account_deletion_requests/${uid}`);
+  await db.runTransaction(async transaction => {
+    const [challengeSnapshot, deletionSnapshot] = await Promise.all([
+      transaction.get(challengeRef), transaction.get(deletionRef),
+    ]);
+    if (deletionSnapshot.exists) {
+      transaction.delete(challengeRef);
+      return;
+    }
+    const stored = challengeSnapshot.data();
+    if (!challengeSnapshot.exists || stored.challenge !== challenge || stored.expiresAt.toMillis() <= Date.now()) {
+      throw new HttpsError('failed-precondition', '계정 삭제 확인 시간이 만료됐습니다. 다시 시도해 주세요.');
+    }
+    transaction.delete(challengeRef);
+    transaction.create(deletionRef, {
+      status:'pending', requestedAt:FieldValue.serverTimestamp(),
+    });
+  });
+  return {accepted:true};
+});
+
+export const processPlayerAccountDeletion = onDocumentCreated({
+  document:'account_deletion_requests/{uid}', region:'asia-northeast3', retry:true,
+  timeoutSeconds:120, memory:'256MiB', maxInstances:5,
+}, async event => {
+  const uid = event.params.uid;
+  const deletionRef = event.data.ref;
+  await deletionRef.set({status:'processing', startedAt:FieldValue.serverTimestamp()}, {merge:true});
+  await getAuth().revokeRefreshTokens(uid).catch(error => {
+    if (error?.code !== 'auth/user-not-found') throw error;
+  });
+
+  const profileRef = db.doc(`player_profiles/${uid}`);
+  const profileSnapshot = await profileRef.get();
+  const nickname = normalizeNickname(profileSnapshot.data()?.nickname);
+  const queries = [
+    db.collection('ranked_completion_events').where('uid', '==', uid),
+    db.collection('ranked_runs').where('uid', '==', uid),
+    db.collection('ranked_submissions').where('uid', '==', uid),
+    db.collection('ranked_run_requests')
+      .where(FieldPath.documentId(), '>=', `${uid}_`)
+      .where(FieldPath.documentId(), '<=', `${uid}_\uf8ff`),
+    db.collectionGroup('scores').where('uid', '==', uid),
+    db.collection('rewarded_ad_transactions').where('uid', '==', uid),
+    db.collection('mission_progress').where('uid', '==', uid),
+  ];
+
+  for (const query of queries) await deleteQueryDocuments(query);
+  const finalBatch = db.batch();
+  finalBatch.delete(profileRef);
+  finalBatch.delete(db.doc(`best_scores/${uid}`));
+  finalBatch.delete(db.doc(`ranked_energy/${uid}`));
+  finalBatch.delete(db.doc(`rewarded_energy_requests/${uid}`));
+  finalBatch.delete(db.doc(`account_deletion_challenges/${uid}`));
+  if (nickname) finalBatch.delete(db.doc(`nickname_reservations/${nicknameReservationId(nickname)}`));
+  await finalBatch.commit();
+  await getAuth().deleteUser(uid).catch(error => {
+    if (error?.code !== 'auth/user-not-found') throw error;
+  });
+  // A second sweep catches writes from requests that began just before the
+  // deletion tombstone became visible.
+  for (const query of queries) await deleteQueryDocuments(query);
+  await deletionRef.set({
+    status:'completed', completedAt:FieldValue.serverTimestamp(),
+    cleanupAt:Timestamp.fromMillis(Date.now() + 90 * 24 * 60 * 60 * 1000),
+  }, {merge:true});
+  logger.info('Player account deleted');
+});
+
+export const purchaseShopItem = onCall(OPTIONS, async request => {
+  const uid = await requireActiveUid(request);
   const item = catalogItem(String(request.data?.itemId || ''));
   if (!item) throw new HttpsError('invalid-argument', '판매 중인 상품이 아닙니다.');
   await getOrCreateProfile(uid);
   const profileRef = db.doc(`player_profiles/${uid}`);
   const result = await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const snapshot = await transaction.get(profileRef);
     const profile = snapshot.data();
     const ownedItems = Array.isArray(profile.ownedItems) ? profile.ownedItems : [];
@@ -332,11 +429,12 @@ export const purchaseShopItem = onCall(OPTIONS, async request => {
 });
 
 export const equipShopItem = onCall(OPTIONS, async request => {
-  const uid = requireUid(request);
+  const uid = await requireActiveUid(request);
   const item = catalogItem(String(request.data?.itemId || ''));
   if (!item) throw new HttpsError('invalid-argument', '장착할 수 없는 상품입니다.');
   const profileRef = db.doc(`player_profiles/${uid}`);
   const profile = await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const snapshot = await transaction.get(profileRef);
     if (!snapshot.exists) throw new HttpsError('failed-precondition', '프로필을 먼저 불러와주세요.');
     const current = snapshot.data();
@@ -351,13 +449,14 @@ export const equipShopItem = onCall(OPTIONS, async request => {
 });
 
 export const createRewardedEnergyRequest = onCall(OPTIONS, async request => {
-  const uid = requireUid(request);
+  const uid = await requireActiveUid(request);
   await getOrCreateProfile(uid);
   const now = Timestamp.now();
   const profile = await refreshPlayerEconomy(uid, now);
   if (profile.energy >= ENERGY_MAX) throw new HttpsError('failed-precondition', '에너지가 이미 가득 찼습니다.');
   const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
   const result = await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const snapshot = await transaction.get(requestRef);
     const existing = snapshot.data();
     if (snapshot.exists && ['pending', 'shown'].includes(existing.status) && existing.expiresAt.toMillis() > now.toMillis()) {
@@ -384,10 +483,11 @@ export const createRewardedEnergyRequest = onCall(OPTIONS, async request => {
 });
 
 export const markRewardedEnergyRequestShown = onCall(OPTIONS, async request => {
-  const uid = requireUid(request);
+  const uid = await requireActiveUid(request);
   const requestId = normalizeRequestId(request.data?.requestId);
   const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
   await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const snapshot = await transaction.get(requestRef);
     const reward = snapshot.data();
     if (!snapshot.exists || reward.requestId !== requestId || reward.status !== 'pending') {
@@ -399,10 +499,11 @@ export const markRewardedEnergyRequestShown = onCall(OPTIONS, async request => {
 });
 
 export const cancelRewardedEnergyRequest = onCall(OPTIONS, async request => {
-  const uid = requireUid(request);
+  const uid = await requireActiveUid(request);
   const requestId = normalizeRequestId(request.data?.requestId);
   const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
   await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const snapshot = await transaction.get(requestRef);
     const reward = snapshot.data();
     if (!snapshot.exists || reward.requestId !== requestId || !['pending', 'shown'].includes(reward.status)) return;
@@ -412,7 +513,7 @@ export const cancelRewardedEnergyRequest = onCall(OPTIONS, async request => {
 });
 
 export const getRewardedEnergyRequestStatus = onCall(OPTIONS, async request => {
-  const uid = requireUid(request);
+  const uid = await requireActiveUid(request);
   const requestId = normalizeRequestId(request.data?.requestId);
   const snapshot = await db.doc(`rewarded_energy_requests/${uid}`).get();
   if (!snapshot.exists || snapshot.data().requestId !== requestId) {
@@ -462,10 +563,12 @@ export const admobRewardedEnergy = onRequest({
     const requestRef = db.doc(`rewarded_energy_requests/${uid}`);
     const transactionRef = db.doc(`rewarded_ad_transactions/${transactionId}`);
     const profileRef = db.doc(`player_profiles/${uid}`);
+    const deletionRef = db.doc(`account_deletion_requests/${uid}`);
     await db.runTransaction(async transaction => {
-      const [rewardSnapshot, usedSnapshot, profileSnapshot] = await Promise.all([
-        transaction.get(requestRef), transaction.get(transactionRef), transaction.get(profileRef),
+      const [deletionSnapshot, rewardSnapshot, usedSnapshot, profileSnapshot] = await Promise.all([
+        transaction.get(deletionRef), transaction.get(requestRef), transaction.get(transactionRef), transaction.get(profileRef),
       ]);
+      if (deletionSnapshot.exists) throw new Error('account-deletion-pending');
       if (usedSnapshot.exists) return;
       const rewardRequest = rewardSnapshot.data();
       if (!rewardSnapshot.exists || rewardRequest.uid !== uid || rewardRequest.requestId !== requestId || !['pending', 'shown'].includes(rewardRequest.status)) {
@@ -513,6 +616,7 @@ async function getOrCreateProfile(uid) {
     const nickname = createFunnyNickname();
     const reservationRef = db.doc(`nickname_reservations/${nicknameReservationId(nickname)}`);
     const created = await db.runTransaction(async transaction => {
+      await assertAccountActive(transaction, uid);
       const [profileSnapshot, reservationSnapshot] = await Promise.all([
         transaction.get(profileRef),
         transaction.get(reservationRef),
@@ -547,7 +651,7 @@ async function getOrCreateProfile(uid) {
 }
 
 export const updatePlayerNickname = onCall(OPTIONS, async request => {
-  const uid = requireUid(request);
+  const uid = await requireActiveUid(request);
   const nickname = normalizeNickname(request.data?.nickname);
   if (!nickname) throw new HttpsError('invalid-argument', '닉네임은 한글·영문·숫자로 2~12자까지 입력해주세요.');
   const now = Timestamp.now();
@@ -557,6 +661,7 @@ export const updatePlayerNickname = onCall(OPTIONS, async request => {
   const currentScoreRefs = currentSeasonScoreRefs(uid, season);
 
   const updated = await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const [profileSnapshot, reservationSnapshot, ...scoreSnapshots] = await Promise.all([
       transaction.get(profileRef),
       transaction.get(reservationRef),
@@ -610,6 +715,7 @@ async function recordFailedSubmission(runRef) {
     const snapshot = await transaction.get(runRef);
     const run = snapshot.data();
     if (!snapshot.exists || run.status !== 'active') return;
+    await assertAccountActive(transaction, run.uid);
     const failedSubmissions = (run.failedSubmissions || 0) + 1;
     transaction.update(runRef, {
       failedSubmissions,
@@ -619,13 +725,36 @@ async function recordFailedSubmission(runRef) {
   });
 }
 
-function requireRankedUid(request) {
-  return requireUid(request);
+async function requireRankedUid(request) {
+  return requireActiveUid(request);
 }
 
 function requireUid(request) {
   if (!request.auth?.uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
   return request.auth.uid;
+}
+
+async function requireActiveUid(request) {
+  const uid = requireUid(request);
+  const deletion = await db.doc(`account_deletion_requests/${uid}`).get();
+  if (deletion.exists) throw new HttpsError('failed-precondition', '삭제 처리 중인 계정입니다.');
+  return uid;
+}
+
+async function assertAccountActive(transaction, uid) {
+  const deletion = await transaction.get(db.doc(`account_deletion_requests/${uid}`));
+  if (deletion.exists) throw new HttpsError('failed-precondition', '삭제 처리 중인 계정입니다.');
+}
+
+async function deleteQueryDocuments(query) {
+  while (true) {
+    const snapshot = await query.limit(400).get();
+    if (snapshot.empty) return;
+    const batch = db.batch();
+    snapshot.docs.forEach(document => batch.delete(document.ref));
+    await batch.commit();
+    if (snapshot.size < 400) return;
+  }
 }
 
 function serializePlayerProfile(profile, economy = null) {
@@ -661,6 +790,7 @@ async function refreshPlayerEconomy(uid, now = Timestamp.now()) {
   const dailyRef = db.doc(`mission_progress/${uid}_daily_${day}`);
   const weeklyRef = db.doc(`mission_progress/${uid}_weekly_${week}`);
   const result = await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const [profileSnapshot, dailySnapshot, weeklySnapshot] = await Promise.all([
       transaction.get(profileRef), transaction.get(dailyRef), transaction.get(weeklyRef),
     ]);
@@ -737,6 +867,7 @@ function decodeBase64Url(value) {
 async function syncClosedSeasonBadges(uid, profile) {
   const profileRef = db.doc(`player_profiles/${uid}`);
   const claim = await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
     const snapshot = await transaction.get(profileRef);
     const currentProfile = snapshot.data() || profile;
     const now = Timestamp.now();
