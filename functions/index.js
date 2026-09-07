@@ -417,10 +417,17 @@ export const purchaseShopItem = onCall(OPTIONS, async request => {
     if (ownedItems.includes(item.id)) return {purchased:false, profile};
     const balance = Math.max(0, Number(profile.sparkBalance) || 0);
     if (balance < item.price) throw new HttpsError('failed-precondition', 'SPARK가 부족합니다.');
-    const next = {...profile, sparkBalance:balance - item.price, ownedItems:[...ownedItems, item.id]};
+    const equippedItems = {...profile.equippedItems, [item.slot]:item.id};
+    const next = {
+      ...profile,
+      sparkBalance:balance - item.price,
+      ownedItems:[...ownedItems, item.id],
+      equippedItems,
+    };
     transaction.update(profileRef, {
       sparkBalance:next.sparkBalance,
       ownedItems:next.ownedItems,
+      equippedItems,
       updatedAt:FieldValue.serverTimestamp(),
     });
     return {purchased:true, profile:next};
@@ -438,7 +445,8 @@ export const equipShopItem = onCall(OPTIONS, async request => {
     const snapshot = await transaction.get(profileRef);
     if (!snapshot.exists) throw new HttpsError('failed-precondition', '프로필을 먼저 불러와주세요.');
     const current = snapshot.data();
-    if (!Array.isArray(current.ownedItems) || !current.ownedItems.includes(item.id)) {
+    const grantedByDefault = item.id === 'default-theme';
+    if (!grantedByDefault && (!Array.isArray(current.ownedItems) || !current.ownedItems.includes(item.id))) {
       throw new HttpsError('permission-denied', '보유한 상품만 장착할 수 있습니다.');
     }
     const equippedItems = {...current.equippedItems, [item.slot]:item.id};
@@ -763,6 +771,10 @@ function serializePlayerProfile(profile, economy = null) {
     isCustom:profile.isCustom,
     lastNicknameChangeAtMs,
   });
+  const ownedItems = Array.isArray(profile.ownedItems) ? profile.ownedItems : [];
+  const equippedItems = profile.equippedItems && typeof profile.equippedItems === 'object'
+    ? profile.equippedItems
+    : {};
   return {
     serverNow:Date.now(),
     nickname:profile.nickname,
@@ -775,8 +787,8 @@ function serializePlayerProfile(profile, economy = null) {
     rankedEnergy:economy?.energy ?? (Number.isInteger(profile.rankedEnergy) ? Math.min(ENERGY_MAX, Math.max(0, profile.rankedEnergy)) : ENERGY_MAX),
     nextEnergyAt:economy?.nextRefillAtMs ?? null,
     sparkBalance:Math.max(0, Number(profile.sparkBalance) || 0),
-    ownedItems:Array.isArray(profile.ownedItems) ? profile.ownedItems : [],
-    equippedItems:profile.equippedItems && typeof profile.equippedItems === 'object' ? profile.equippedItems : {},
+    ownedItems:ownedItems.includes('default-theme') ? ownedItems : ['default-theme', ...ownedItems],
+    equippedItems:{appTheme:'default-theme', ...equippedItems},
     shopCatalog:SHOP_CATALOG,
     dailyMissions:economy?.dailyMissions || [],
     weeklyMissions:economy?.weeklyMissions || [],

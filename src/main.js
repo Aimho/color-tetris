@@ -1,4 +1,5 @@
 import './style.css';
+import { App } from '@capacitor/app';
 import { actionForKey, canStartPointerGesture, dragStepTarget, installCanvasInputGuards } from './input.js';
 import { findColorGroups, groupSizesByCell } from './board.js';
 import { configureAudioSession, createAudioContext, primeLegacyMediaChannel, resumeIfSuspended, unlockAudioContext } from './audio.js';
@@ -6,7 +7,7 @@ import { createPieceColors, rotateCellClockwise, rotateSquareCells, wallKickOffs
 import { MusicEngine } from './music.js';
 import { canResetLock, getClearIntensity, getClearScore, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
 import { attachQueuedSpecial, createSpecialRewardQueue, earnSpecialRewards, resolveSpecialEffects } from './events.js';
-import { chargeReactor, finishRun, normalizeTheme, readProfile, unlockedThemes } from './progression.js';
+import { chargeReactor, finishRun, normalizeTheme, readProfile } from './progression.js';
 import { chooseMultiplierDrop, getChainPower, getClearSpecialMultiplier, getMultiplierRewards } from './reactor.js';
 import {
   GAME_MODES,
@@ -121,8 +122,8 @@ const nicknameForm = document.querySelector('#nicknameForm');
 const nicknameInput = document.querySelector('#nicknameInput');
 const nicknameHint = document.querySelector('#nicknameHint');
 const socialConnectButton = document.querySelector('#socialConnectButton');
-const themeOptions = document.querySelector('#themeOptions');
 const sparkBalance = document.querySelector('#sparkBalance');
+const shopSparkBalance = document.querySelector('#shopSparkBalance');
 const missionList = document.querySelector('#missionList');
 const missionTabs = [...document.querySelectorAll('[data-mission-tab]')];
 const shopList = document.querySelector('#shopList');
@@ -132,6 +133,7 @@ const privacyOptionsButton = document.querySelector('#privacyOptionsButton');
 const deleteAccountButton = document.querySelector('#deleteAccountButton');
 const resetLocalDataButton = document.querySelector('#resetLocalDataButton');
 const settingsVersion = document.querySelector('#settingsVersion');
+const appToast = document.querySelector('#appToast');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 const isNativeApp = globalThis.Capacitor?.isNativePlatform?.() === true;
 const androidStoreUrl = String(import.meta.env.VITE_ANDROID_STORE_URL || '').trim();
@@ -146,8 +148,12 @@ let arrowBeams = [], bombBursts = [], multiplierBursts = [], multiplierDrops = [
 let specialRewards = createSpecialRewardQueue();
 let tutorialStartsGame = false, piecesSpawned = 0, hintTimer;
 let tutorialOpener = null, autoPaused = false;
+let resumeDialogMode = null;
 let gestureStart = null;
 let leaderboardApiPromise;
+let toastTimer;
+let lastAndroidBackAt = 0;
+let androidBackListenerHandle;
 let randomSource = Math.random;
 let reactorCharge = 0, reactorPower = 0, maxChain = 0;
 let profile = readProfile();
@@ -234,30 +240,29 @@ function renderLocalProfile() {
     const value = Number(profile[element.dataset.profileStat] || 0);
     element.textContent = value.toLocaleString();
   });
-  themeOptions.replaceChildren(...unlockedThemes(profile).map(theme => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.dataset.theme = theme.id;
-    button.setAttribute('aria-pressed', String(normalizeTheme(profile.theme) === theme.id));
-    button.setAttribute('aria-label', `${theme.label} 테마: ${theme.caption}`);
-    const preview = document.createElement('span');
-    preview.className = 'theme-preview';
-    preview.setAttribute('aria-hidden', 'true');
-    preview.replaceChildren(...[0, 1, 2, 3].map(color => {
-      const cell = document.createElement('i');
-      cell.style.setProperty('--preview-color', COLORS[color]);
-      return cell;
-    }));
-    const copy = document.createElement('span');
-    copy.className = 'theme-copy';
-    const label = document.createElement('strong');
-    label.textContent = theme.label;
-    const caption = document.createElement('small');
-    caption.textContent = theme.caption;
-    copy.append(label, caption);
-    button.append(preview, copy);
-    return button;
-  }));
+}
+
+function showToast(message, tone = 'info') {
+  if (!appToast) return;
+  clearTimeout(toastTimer);
+  appToast.textContent = message;
+  appToast.dataset.tone = tone;
+  appToast.hidden = false;
+  requestAnimationFrame(() => appToast.classList.add('visible'));
+  toastTimer = setTimeout(() => {
+    appToast.classList.remove('visible');
+    setTimeout(() => { appToast.hidden = true; }, 180);
+  }, 3200);
+}
+
+function friendlyAdError(error) {
+  const detail = String(error?.message || error || '').toLowerCase();
+  if (detail.includes('network') || detail.includes('offline')) return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
+  if (detail.includes('no fill') || detail.includes('no ad')) return '현재 이용 가능한 광고가 없습니다. 잠시 후 다시 시도해 주세요.';
+  if (detail.includes('publisher') || detail.includes('consent') || detail.includes('form')) {
+    return '광고 개인정보 설정을 준비하고 있습니다. 잠시 후 다시 시도해 주세요.';
+  }
+  return '광고를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
 }
 
 function renderServerProfile(nextProfile) {
@@ -288,6 +293,11 @@ function applyServerCosmetics(equipped = {}) {
     if (equipped[slot]) document.body.dataset[slot] = equipped[slot];
     else delete document.body.dataset[slot];
   }
+  profile.theme = equipped.appTheme === 'pixel-theme'
+    ? 'pixel'
+    : equipped.appTheme === 'neon-theme' ? 'neon' : 'default';
+  try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
+  applyProfileTheme();
   music?.setTheme(equipped.lobbyBgm);
   draw();
 }
@@ -329,7 +339,9 @@ function renderMissions() {
   const missions = selectedMissionPeriod === 'daily'
     ? serverProfile?.dailyMissions || []
     : serverProfile?.weeklyMissions || [];
-  sparkBalance.textContent = `${Number(serverProfile?.sparkBalance || 0).toLocaleString()} SPARK`;
+  const balanceLabel = `${Number(serverProfile?.sparkBalance || 0).toLocaleString()} SPARK`;
+  sparkBalance.textContent = balanceLabel;
+  shopSparkBalance.textContent = balanceLabel;
   missionTabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.missionTab === selectedMissionPeriod)));
   missionList.replaceChildren(...missions.map(mission => {
     const row = document.createElement('article');
@@ -351,6 +363,11 @@ function renderMissions() {
 function renderShop() {
   const owned = new Set(serverProfile?.ownedItems || []);
   const equipped = new Set(Object.values(serverProfile?.equippedItems || {}));
+  const balance = Math.max(0, Number(serverProfile?.sparkBalance) || 0);
+  const slotLabels = {
+    appTheme:'앱 테마', boardTheme:'보드 스킨', blockSkin:'블록 스킨',
+    clearEffect:'폭발 효과', lobbyBgm:'로비 BGM', profileFrame:'프로필 프레임',
+  };
   shopList.replaceChildren(...(serverProfile?.shopCatalog || SHOP_CATALOG).map(item => {
     const row = document.createElement('article');
     row.className = `shop-item shop-${item.id}`;
@@ -361,12 +378,18 @@ function renderShop() {
     const slot = document.createElement('small');
     const button = document.createElement('button');
     label.textContent = item.label;
-    slot.textContent = item.slot.replace(/[A-Z]/g, match => ` ${match}`).toUpperCase();
+    const isOwned = owned.has(item.id) || item.price === 0;
+    const isEquipped = equipped.has(item.id);
+    const canAfford = balance >= item.price;
+    slot.textContent = slotLabels[item.slot] || item.slot;
     button.type = 'button';
     button.dataset.shopItem = item.id;
-    button.dataset.shopAction = owned.has(item.id) ? 'equip' : 'purchase';
-    button.disabled = !serverProfile || equipped.has(item.id);
-    button.textContent = equipped.has(item.id) ? '장착됨' : owned.has(item.id) ? '장착' : `${item.price} SPARK`;
+    button.dataset.shopAction = isOwned ? 'equip' : 'purchase';
+    button.disabled = !serverProfile || isEquipped || (!isOwned && !canAfford);
+    button.setAttribute('aria-label', `${item.label} ${isEquipped ? '장착됨' : isOwned ? '장착' : canAfford ? `${item.price} SPARK로 구매` : `구매 불가, ${item.price} SPARK 필요`}`);
+    button.textContent = isEquipped
+      ? '장착됨'
+      : isOwned ? '장착' : canAfford ? `${item.price} SPARK` : 'SPARK 부족';
     copy.append(label, slot);
     row.append(swatch, copy, button);
     return row;
@@ -754,6 +777,7 @@ function restoreRun(snapshot) {
   updateReactor();
   draw();
   gameShell.inert = true;
+  resumeDialogMode = 'restore';
   resumeDialog.hidden = false;
   resumeDialog.querySelector('#resumeTitle').innerHTML = '저장된 게임을<br />이어갈까요?';
   resumeDialog.querySelector('.resume-card > p:not(.overlay-kicker)').textContent =
@@ -1028,6 +1052,28 @@ function drawCell(context, x, y, colorIndex, size=CELL, alpha=1, event=null) {
     context.lineTo(px + s * .55, py + s * .88);
     context.closePath();
     context.fill();
+  } else if (document.body.dataset.blockSkin === 'jelly') {
+    context.save();
+    context.globalAlpha = alpha * .38;
+    context.fillStyle = '#ffffff';
+    context.beginPath();
+    context.arc(px + s * .32, py + s * .28, Math.max(2, s * .11), 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+  } else if (document.body.dataset.blockSkin === 'prism') {
+    context.save();
+    context.globalAlpha = alpha * .7;
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = Math.max(1, size * .045);
+    context.beginPath();
+    context.moveTo(px + s * .5, py + s * .08);
+    context.lineTo(px + s * .9, py + s * .38);
+    context.lineTo(px + s * .72, py + s * .9);
+    context.lineTo(px + s * .28, py + s * .9);
+    context.lineTo(px + s * .1, py + s * .38);
+    context.closePath();
+    context.stroke();
+    context.restore();
   }
   if (settings.colorAssist) {
     const corner = Math.max(3, size * .13);
@@ -2099,14 +2145,6 @@ deleteAccountButton.addEventListener('click', async () => {
     profileStatus.textContent = error?.message || '계정과 데이터를 삭제하지 못했습니다.';
   }
 });
-themeOptions.addEventListener('click', event => {
-  const button = event.target.closest('[data-theme]');
-  if (!button) return;
-  profile.theme = button.dataset.theme;
-  try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
-  applyProfileTheme();
-  renderLocalProfile();
-});
 missionTabs.forEach(tab => tab.addEventListener('click', () => {
   selectedMissionPeriod = tab.dataset.missionTab;
   renderMissions();
@@ -2114,18 +2152,28 @@ missionTabs.forEach(tab => tab.addEventListener('click', () => {
 shopList.addEventListener('click', async event => {
   const button = event.target.closest('[data-shop-item]');
   if (!button) return;
+  const action = button.dataset.shopAction;
+  const itemId = button.dataset.shopItem;
   button.disabled = true;
-  labStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매하는 중…' : '상품을 장착하는 중…';
+  labStatus.textContent = action === 'purchase' ? '상품을 구매하는 중…' : '상품을 장착하는 중…';
   try {
     const api = await import('./profile-service.js');
-    const nextProfile = button.dataset.shopAction === 'purchase'
-      ? await api.purchasePlayerItem(button.dataset.shopItem)
-      : await api.equipPlayerItem(button.dataset.shopItem);
+    let nextProfile;
+    if (action === 'purchase') {
+      nextProfile = await api.purchasePlayerItem(itemId);
+    } else {
+      nextProfile = await api.equipPlayerItem(itemId);
+    }
     renderServerProfile(nextProfile);
-    labStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매했습니다.' : '상품을 장착했습니다.';
+    labStatus.textContent = action === 'purchase' ? '구매하고 장착했습니다.' : '상품을 장착했습니다.';
+    showToast(labStatus.textContent, 'success');
   } catch (error) {
     button.disabled = false;
-    labStatus.textContent = error?.message || '상점 요청을 처리하지 못했습니다.';
+    const message = String(error?.message || '').includes('SPARK')
+      ? 'SPARK가 부족합니다. 미션을 완료해 SPARK를 모아보세요.'
+      : '상점 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    labStatus.textContent = message;
+    showToast(message, 'error');
   }
 });
 settingsForm.addEventListener('change', event => {
@@ -2158,7 +2206,7 @@ rewardedEnergyButton.addEventListener('click', async () => {
       }
     }
   } catch (error) {
-    overlayCopy.textContent = error?.message || '광고를 불러오지 못했습니다.';
+    showToast(friendlyAdError(error), 'error');
   } finally {
     renderEnergy();
   }
@@ -2168,7 +2216,9 @@ privacyOptionsButton.addEventListener('click', async () => {
     const {showPrivacyOptions} = await import('./rewarded-energy.js');
     await showPrivacyOptions();
   } catch (error) {
-    profileStatus.textContent = error?.message || '개인정보 선택 화면을 열지 못했습니다.';
+    const message = '광고 개인정보 선택 화면을 열지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    profileStatus.textContent = message;
+    showToast(message, 'error');
   }
 });
 resetLocalDataButton.addEventListener('click', () => {
@@ -2242,6 +2292,7 @@ function requestResumeAfterInterruption() {
   resumeDialog.querySelector('#resumeTitle').innerHTML = '잠시<br />멈췄습니다';
   resumeDialog.querySelector('.resume-card > p:not(.overlay-kicker)').textContent =
     '준비되면 이어서 플레이하세요.';
+  resumeDialogMode = 'interruption';
   resumeDialog.hidden = false;
   resumeButton.focus({ preventScroll: true });
 }
@@ -2250,12 +2301,59 @@ function continueAfterInterruption() {
   if (!autoPaused) return;
   unlockAudioSession();
   resumeDialog.hidden = true;
+  resumeDialogMode = null;
   gameShell.inert = false;
   autoPaused = false;
   paused = false;
   lastTime = performance.now();
   startLoop();
   startMusic();
+}
+
+async function handleAndroidBackButton() {
+  if (!resumeDialog.hidden) {
+    lastAndroidBackAt = 0;
+    if (resumeDialogMode === 'restore') discardSavedRun();
+    else continueAfterInterruption();
+    return;
+  }
+
+  const openPanel = [profilePanel, labPanel, settingsPanel].find(panel => !panel.hidden);
+  if (openPanel) {
+    lastAndroidBackAt = 0;
+    closeAppPanel(openPanel);
+    return;
+  }
+  if (!tutorial.hidden) {
+    lastAndroidBackAt = 0;
+    closeTutorial();
+    return;
+  }
+  if (!homeRanking.hidden) {
+    lastAndroidBackAt = 0;
+    closeHomeRanking();
+    rankingButton.focus({preventScroll:true});
+    return;
+  }
+  if (running) {
+    lastAndroidBackAt = 0;
+    pauseForInterruption();
+    requestResumeAfterInterruption();
+    return;
+  }
+  if (overlay.classList.contains('game-over')) {
+    lastAndroidBackAt = 0;
+    returnHome();
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastAndroidBackAt <= 2000) {
+    await App.exitApp();
+    return;
+  }
+  lastAndroidBackAt = now;
+  showToast('종료하려면 뒤로가기를 한 번 더 누르세요.');
 }
 
 function discardSavedRun() {
@@ -2268,6 +2366,7 @@ function discardSavedRun() {
   paused = false;
   autoPaused = false;
   resumeDialog.hidden = true;
+  resumeDialogMode = null;
   gameShell.inert = false;
   document.body.classList.remove('playing');
   overlay.classList.add('visible');
@@ -2402,3 +2501,10 @@ if (!e2eMode) {
 const savedRun = readRunSnapshot();
 if (savedRun) restoreRun(savedRun);
 setupPwa();
+if (isNativeAndroid) {
+  void App.addListener('backButton', () => { void handleAndroidBackButton(); })
+    .then(handle => { androidBackListenerHandle = handle; });
+}
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => { void androidBackListenerHandle?.remove(); });
+}

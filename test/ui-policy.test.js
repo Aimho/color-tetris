@@ -282,9 +282,49 @@ test('마이페이지와 LAB은 기록과 보상 기능을 분리한다', async 
   const profile = html.match(/id="profilePanel"[\s\S]*?<\/section>\s*<section class="app-panel" id="labPanel"/)?.[0] ?? '';
   const lab = html.match(/id="labPanel"[\s\S]*?<\/section>\s*<section class="app-panel" id="settingsPanel"/)?.[0] ?? '';
   assert.doesNotMatch(profile, /id="themeOptions"|id="missionList"|id="shopList"/);
-  assert.match(lab, /id="themeOptions"/);
+  assert.match(lab, /id="shopSparkBalance"/);
   assert.match(lab, /id="missionList"/);
   assert.match(lab, /id="shopList"/);
+});
+
+test('상점은 SPARK 잔액과 구매 가능 여부를 명확히 표시한다', async () => {
+  const [html, main, server] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../functions/index.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(html, /id="shopSparkBalance">0 SPARK/);
+  assert.match(main, /button\.disabled = !serverProfile \|\| isEquipped \|\| \(!isOwned && !canAfford\)/);
+  assert.match(main, /'SPARK 부족'/);
+  assert.match(main, /nextProfile = await api\.purchasePlayerItem\(itemId\)/);
+  assert.match(main, /dataset\.blockSkin === 'jelly'/);
+  assert.match(main, /dataset\.blockSkin === 'prism'/);
+  assert.match(server, /const equippedItems = \{\.\.\.profile\.equippedItems, \[item\.slot\]:item\.id\}/);
+  assert.match(server, /transaction\.update\(profileRef, \{[\s\S]*equippedItems,/);
+});
+
+test('광고 오류는 게임 설명을 덮지 않고 사용자용 Toast로 표시한다', async () => {
+  const [html, main] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(html, /id="appToast"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(main, /showToast\(friendlyAdError\(error\), 'error'\)/);
+  assert.doesNotMatch(main, /overlayCopy\.textContent = error\?\.message \|\| '광고를 불러오지 못했습니다\.'/);
+});
+
+test('Android 뒤로가기는 열린 화면과 게임을 먼저 처리하고 홈에서 두 번 눌러 종료한다', async () => {
+  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /App\.addListener\('backButton'/);
+  assert.match(main, /const openPanel = \[profilePanel, labPanel, settingsPanel\]/);
+  assert.match(main, /if \(!tutorial\.hidden\)/);
+  assert.match(main, /if \(!homeRanking\.hidden\)/);
+  assert.match(main, /if \(running\) \{[\s\S]*pauseForInterruption\(\);[\s\S]*requestResumeAfterInterruption\(\)/);
+  assert.match(main, /resumeDialogMode === 'restore'\) discardSavedRun\(\)/);
+  assert.match(main, /overlay\.classList\.contains\('game-over'\)[\s\S]*returnHome\(\)/);
+  assert.match(main, /now - lastAndroidBackAt <= 2000/);
+  assert.match(main, /await App\.exitApp\(\)/);
+  assert.match(main, /종료하려면 뒤로가기를 한 번 더 누르세요/);
 });
 
 test('닉네임이 없는 구버전 프로필은 자동 닉네임으로 마이그레이션한다', async () => {

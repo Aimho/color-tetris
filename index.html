@@ -206,12 +206,12 @@
           </section>
         </div>
         <div class="lab-view" data-lab-view="custom" hidden>
-          <section class="profile-section" aria-labelledby="themeTitle">
-            <div class="section-heading"><p>BOARD SKIN</p><h3 id="themeTitle">테마</h3></div>
-            <div class="theme-options" id="themeOptions"></div>
-          </section>
           <section class="profile-section economy-section" aria-labelledby="shopTitle">
-            <div class="section-heading"><div><p>CUSTOM LAB</p><h3 id="shopTitle">커스터마이징 상점</h3></div></div>
+            <div class="shop-heading">
+              <div><p>CUSTOM LAB</p><h3 id="shopTitle">커스터마이징 상점</h3></div>
+              <strong class="spark-balance shop-spark-balance" id="shopSparkBalance">0 SPARK</strong>
+            </div>
+            <p class="shop-guidance">테마와 스킨을 SPARK로 해금하고 바로 장착하세요.</p>
             <div class="shop-list" id="shopList"></div>
           </section>
         </div>
@@ -310,6 +310,7 @@
         </div>
       </div>
     </section>
+    <div class="app-toast" id="appToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

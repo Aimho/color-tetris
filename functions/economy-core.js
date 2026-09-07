@@ -12,8 +12,8 @@ export function defaultEconomy() {
   return {
     rankedEnergy:ENERGY_MAX,
     sparkBalance:0,
-    ownedItems:[],
-    equippedItems:{},
+    ownedItems:['default-theme'],
+    equippedItems:{appTheme:'default-theme'},
   };
 }
 

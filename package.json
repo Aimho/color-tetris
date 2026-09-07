@@ -32,9 +32,10 @@
     "vite": "^7.0.0"
   },
   "dependencies": {
+    "@capacitor-community/admob": "^7.2.0",
     "@capacitor-firebase/app-check": "^7.5.0",
     "@capacitor-firebase/authentication": "^7.5.0",
-    "@capacitor-community/admob": "^7.2.0",
+    "@capacitor/app": "^7.1.2",
     "@sentry/browser": "^10.68.0",
     "firebase": "^12.16.0"
   }
