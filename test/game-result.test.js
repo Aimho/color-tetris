@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RESULT_KINDS, createGameResult, createShareText } from '../src/game-result.js';
+import { RESULT_KINDS, createGameResult, createShareText, createShareUrl } from '../src/game-result.js';
 
 test('연습 결과는 서버 기록 없이 친근하게 안내한다', () => {
   const result = createGameResult({ranked:false, score:1234, level:7});
@@ -24,6 +24,18 @@ test('랭킹 첫 기록과 신기록을 구분한다', () => {
   assert.equal(best.rank, 2);
 });
 
+test('검증된 랭킹 결과에 이번 SPARK와 현재 잔액을 표시한다', () => {
+  const result = createGameResult({
+    ranked:true,
+    score:12_000,
+    level:8,
+    submission:{firstRecord:true, updated:true, sparkReward:12, sparkBalance:212},
+  });
+  assert.equal(result.sparkReward, 12);
+  assert.equal(result.sparkBalance, 212);
+  assert.equal(createGameResult({ranked:false, score:12_000, level:8}).sparkReward, null);
+});
+
 test('기존 기록과 오프라인 결과를 구분하고 공유 문구에 순위를 넣는다', () => {
   const existing = createGameResult({
     ranked:true,
@@ -43,6 +55,22 @@ test('공유 문구는 점수 다음 줄부터 레벨을 표시한다', () => {
   assert.equal(
     createShareText({score:220, level:1, rank:null}),
     'COLOR BOMB 220점\nLV 1! 같은 색 6칸부터 연쇄가 시작됩니다.',
+  );
+});
+
+test('네이티브 앱의 랭킹 공유는 Play 스토어 설치 링크를 사용한다', () => {
+  assert.equal(
+    createShareUrl({
+      platform:'android',
+      androidStoreUrl:'https://play.google.com/store/apps/details?id=com.aimho.games.colorbomb',
+      origin:'https://localhost',
+      pathname:'/',
+    }),
+    'https://play.google.com/store/apps/details?id=com.aimho.games.colorbomb',
+  );
+  assert.equal(
+    createShareUrl({platform:'ios', androidStoreUrl:'android', iosStoreUrl:'', origin:'capacitor://localhost', pathname:'/'}),
+    'https://color-tetrix-aimho.web.app/',
   );
 });
 

@@ -1,5 +1,8 @@
 export const ENERGY_MAX = 3;
 export const ENERGY_REFILL_MS = 30 * 60 * 1000;
+export const SCORE_PER_SPARK = 1_000;
+export const SCORE_SPARK_PER_RUN_MAX = 25;
+export const SCORE_SPARK_DAILY_MAX = 75;
 
 export const SHOP_CATALOG = Object.freeze([
   {id:'default-theme', slot:'appTheme', label:'ORIGINAL', price:0},

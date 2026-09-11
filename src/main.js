@@ -21,7 +21,7 @@ import { createScoreLedger } from './ranking-model.js';
 import { createRankedRandom } from '../functions/shared/ranked-random.js';
 import { SHOP_CATALOG } from '../functions/shared/economy-contract.js';
 import { setupPwa } from './pwa.js';
-import { createGameResult, createShareText } from './game-result.js';
+import { createGameResult, createShareText, createShareUrl } from './game-result.js';
 import { captureClientError, initializeSentry } from './sentry.js';
 import { roundRectPath } from './canvas-path.js';
 import { cloneSerializable } from './platform-compat.js';
@@ -85,6 +85,10 @@ const resultScore = document.querySelector('#resultScore');
 const resultLevel = document.querySelector('#resultLevel');
 const resultSeasonBest = document.querySelector('#resultSeasonBest');
 const resultRank = document.querySelector('#resultRank');
+const resultSparkRewardRow = document.querySelector('#resultSparkRewardRow');
+const resultSparkReward = document.querySelector('#resultSparkReward');
+const resultSparkBalanceRow = document.querySelector('#resultSparkBalanceRow');
+const resultSparkBalance = document.querySelector('#resultSparkBalance');
 const homeRanking = document.querySelector('#homeRanking');
 const homeLeaderboardList = document.querySelector('#homeLeaderboardList');
 const rankingButton = document.querySelector('#rankingButton');
@@ -101,7 +105,9 @@ const rankedEnergyPanel = document.querySelector('#rankedEnergyPanel');
 const rankedEnergyValue = document.querySelector('#rankedEnergyValue');
 const rankedEnergyTimer = document.querySelector('#rankedEnergyTimer');
 const homeHelpButton = document.querySelector('#homeHelpButton');
-const rewardedEnergyButton = document.querySelector('#rewardedEnergyButton');
+const rewardDialog = document.querySelector('#rewardDialog');
+const rewardConfirmButton = document.querySelector('#rewardConfirmButton');
+const rewardCancelButton = document.querySelector('#rewardCancelButton');
 const pauseButton = document.querySelector('#pauseButton');
 const profileButton = document.querySelector('#profileButton');
 const profileNotificationDot = document.querySelector('#profileNotificationDot');
@@ -136,7 +142,9 @@ const settingsVersion = document.querySelector('#settingsVersion');
 const appToast = document.querySelector('#appToast');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 const isNativeApp = globalThis.Capacitor?.isNativePlatform?.() === true;
+const nativePlatform = globalThis.Capacitor?.getPlatform?.() || 'web';
 const androidStoreUrl = String(import.meta.env.VITE_ANDROID_STORE_URL || '').trim();
+const iosStoreUrl = String(import.meta.env.VITE_IOS_STORE_URL || '').trim();
 const reducedMotionMedia = matchMedia('(prefers-reduced-motion: reduce)');
 
 let board, eventBoard, active, queue, hold, holdUsed, score, level, lines, running, paused;
@@ -186,7 +194,12 @@ let energyTimerId = null;
 let economyRefreshPromise = null;
 let serverClockOffsetMs = 0;
 let nextEnergyRefreshAllowedAt = 0;
-let rewardedEnergyPendingUntil = 0;
+let rewardedEnergyAdReady = false;
+let rewardedEnergyAdLoading = false;
+let rewardedEnergyVerificationPending = false;
+let nextRewardedPreloadAt = 0;
+let rewardedEnergyRetryTimer = null;
+let rankedServiceReady = false;
 let currentGameResult = null;
 const rankedStartGuard = createOperationGuard();
 const e2eMode = import.meta.env.VITE_E2E === 'true';
@@ -308,7 +321,7 @@ function currentServerTime() {
 
 function renderEnergy(nextProfile = serverProfile) {
   const energy = nextProfile ? Math.min(3, Math.max(0, Number(nextProfile.rankedEnergy) || 0)) : 3;
-  const rewardPending = currentServerTime() < rewardedEnergyPendingUntil;
+  const rewardPending = rewardedEnergyVerificationPending;
   rankedEnergyValue.textContent = `${'◆ '.repeat(energy)}${'◇ '.repeat(3 - energy)}`.trim();
   if (!nextProfile) {
     rankedEnergyTimer.textContent = '서버 연결 중';
@@ -326,13 +339,58 @@ function renderEnergy(nextProfile = serverProfile) {
   }
   if (energyTimerId) clearInterval(energyTimerId);
   energyTimerId = setInterval(() => renderEnergy(serverProfile), 1000);
-  rewardedEnergyButton.hidden = !isNativeAndroid || !nextProfile || energy >= 3;
-  rewardedEnergyButton.disabled = !nextProfile || energy >= 3 || rewardPending;
-  rewardedEnergyButton.textContent = rewardPending ? '보상 확인 중…' : '광고 보고 +1';
   if (isNativeApp && !running) {
-    rankedStartButton.disabled = !nextProfile || energy <= 0;
-    rankedStartButton.innerHTML = energy > 0 ? '랭킹 도전 <span>◆</span>' : '에너지 충전 중 <span>⚡</span>';
+    rankedStartButton.disabled = !nextProfile || !rankedServiceReady || rewardPending
+      || energy === 0 && !isNativeAndroid;
+    rankedStartButton.innerHTML = rewardPending
+      ? '보상 확인 중… <span>⚡</span>'
+      : energy > 0 ? '랭킹 도전 <span>◆</span>'
+        : isNativeAndroid ? '랭킹 도전 <span>⚡</span>' : '에너지 충전 중 <span>⚡</span>';
   }
+}
+
+async function preloadRewardedEnergyAd() {
+  rewardedEnergyAdLoading = true;
+  renderEnergy();
+  try {
+    const {prepareRewardedEnergyAd} = await import('./rewarded-energy.js');
+    const request = await prepareRewardedEnergyAd();
+    if (request.awaitingVerification) {
+      rewardedEnergyVerificationPending = true;
+      scheduleRewardedEnergyRetry(request);
+      return;
+    }
+    rewardedEnergyVerificationPending = false;
+    rewardedEnergyAdReady = !request.alreadyVerified;
+    if (request.alreadyVerified) await refreshEconomyProfile();
+  } catch {
+    rewardedEnergyAdReady = false;
+    rewardedEnergyVerificationPending = false;
+    nextRewardedPreloadAt = Date.now() + 30_000;
+  } finally {
+    rewardedEnergyAdLoading = false;
+    renderEnergy();
+  }
+}
+
+function clearRewardedEnergyRetry() {
+  clearTimeout(rewardedEnergyRetryTimer);
+  rewardedEnergyRetryTimer = null;
+}
+
+function scheduleRewardedEnergyRetry(request) {
+  clearRewardedEnergyRetry();
+  const remaining = Number(request.expiresAt) - Date.now();
+  if (remaining <= 0) {
+    rewardedEnergyVerificationPending = false;
+    renderEnergy();
+    return;
+  }
+  rewardedEnergyRetryTimer = setTimeout(() => {
+    rewardedEnergyRetryTimer = null;
+    nextRewardedPreloadAt = 0;
+    preloadRewardedEnergyAd();
+  }, Math.min(3000, remaining));
 }
 
 function renderMissions() {
@@ -389,7 +447,7 @@ function renderShop() {
     button.setAttribute('aria-label', `${item.label} ${isEquipped ? '장착됨' : isOwned ? '장착' : canAfford ? `${item.price} SPARK로 구매` : `구매 불가, ${item.price} SPARK 필요`}`);
     button.textContent = isEquipped
       ? '장착됨'
-      : isOwned ? '장착' : canAfford ? `${item.price} SPARK` : 'SPARK 부족';
+      : isOwned ? '장착' : `${item.price} SPARK`;
     copy.append(label, slot);
     row.append(swatch, copy, button);
     return row;
@@ -520,20 +578,21 @@ async function refreshRankedAvailability() {
     return;
   }
   rankedEnergyPanel.hidden = false;
+  rankedServiceReady = false;
   rankedStartButton.disabled = true;
   rankedStartButton.innerHTML = '로딩 중… <span>◆</span>';
   try {
     const { rankedServiceStatus } = await import('./ranked-service.js');
     const status = await rankedServiceStatus();
+    rankedServiceReady = status.ready;
     const energy = Number(serverProfile?.rankedEnergy || 0);
-    rankedStartButton.disabled = !status.ready || !serverProfile || energy <= 0;
-    rankedStartButton.innerHTML = status.ready && energy > 0
-      ? '랭킹 도전 <span>◆</span>'
-      : serverProfile
-        ? '에너지 충전 중 <span>⚡</span>'
-        : '랭킹 점검 중 <span>◆</span>';
+    rankedStartButton.disabled = !status.ready || !serverProfile;
+    rankedStartButton.innerHTML = status.ready && serverProfile
+      ? energy > 0 ? '랭킹 도전 <span>◆</span>' : '랭킹 도전 <span>⚡</span>'
+      : '랭킹 점검 중 <span>◆</span>';
     rankedStartButton.title = status.reason;
   } catch {
+    rankedServiceReady = false;
     rankedStartButton.disabled = true;
     rankedStartButton.innerHTML = '랭킹 연결 실패 <span>◆</span>';
     rankedStartButton.title = '랭킹 서버에 연결할 수 없습니다.';
@@ -1638,6 +1697,13 @@ function renderGameResult(result) {
   resultLevel.textContent = `LV ${result.level}`;
   resultSeasonBest.textContent = result.seasonBest == null ? '—' : result.seasonBest.toLocaleString();
   resultRank.textContent = result.rank ? `#${result.rank}` : '—';
+  const hasSparkSettlement = Number.isFinite(result.sparkReward) && Number.isFinite(result.sparkBalance);
+  resultSparkRewardRow.hidden = !hasSparkSettlement;
+  resultSparkBalanceRow.hidden = !hasSparkSettlement;
+  if (hasSparkSettlement) {
+    resultSparkReward.textContent = `+${result.sparkReward.toLocaleString()}`;
+    resultSparkBalance.textContent = result.sparkBalance.toLocaleString();
+  }
 }
 
 async function submitCompletedRankedRun(resultRunId, finalScore, finalLevel) {
@@ -1957,7 +2023,13 @@ function closeHomeRanking() {
 }
 
 async function shareGame() {
-  const url = `${location.origin}${location.pathname}`;
+  const url = createShareUrl({
+    platform:nativePlatform,
+    androidStoreUrl,
+    iosStoreUrl,
+    origin:location.origin,
+    pathname:location.pathname,
+  });
   const result = currentGameResult || createGameResult({ranked:false, score, level});
   const data = {
     title: 'COLOR BOMB',
@@ -2060,7 +2132,13 @@ async function startSelectedMode(mode) {
 }
 
 startButton.addEventListener('click', () => startSelectedMode(GAME_MODES.PRACTICE));
-rankedStartButton.addEventListener('click', () => startSelectedMode(GAME_MODES.RANKED));
+rankedStartButton.addEventListener('click', () => {
+  if (!isNativeAndroid || Number(serverProfile?.rankedEnergy || 0) > 0) {
+    startSelectedMode(GAME_MODES.RANKED);
+    return;
+  }
+  openRewardDialog();
+});
 homeHelpButton.addEventListener('click', () => openTutorial(false));
 rankingButton.addEventListener('click', openHomeRanking);
 function openEconomyPanel(viewName, opener) {
@@ -2187,30 +2265,56 @@ openControlsButton.addEventListener('click', () => {
   closeAppPanel(settingsPanel);
   openTutorial(false);
 });
-rewardedEnergyButton.addEventListener('click', async () => {
-  rewardedEnergyButton.disabled = true;
-  rewardedEnergyButton.textContent = '광고 준비 중…';
+function openRewardDialog() {
+  gameShell.inert = true;
+  rewardDialog.hidden = false;
+  rewardConfirmButton.focus({preventScroll:true});
+  if (!rewardedEnergyAdReady && !rewardedEnergyAdLoading && Date.now() >= nextRewardedPreloadAt) {
+    preloadRewardedEnergyAd();
+  }
+}
+
+function closeRewardDialog(force = false) {
+  if (rewardConfirmButton.disabled && !force) return;
+  clearRewardedEnergyRetry();
+  rewardedEnergyVerificationPending = false;
+  rewardDialog.hidden = true;
+  gameShell.inert = false;
+  rankedStartButton.focus({preventScroll:true});
+}
+
+async function watchRewardedEnergyAndStart() {
+  rewardConfirmButton.disabled = true;
+  rewardCancelButton.disabled = true;
+  rewardConfirmButton.textContent = rewardedEnergyAdReady ? '광고 여는 중…' : '광고 불러오는 중…';
   try {
-    const {showRewardedEnergyAd, getRewardedEnergyStatus} = await import('./rewarded-energy.js');
+    const {showRewardedEnergyAd} = await import('./rewarded-energy.js');
     const request = await showRewardedEnergyAd();
-    rewardedEnergyPendingUntil = Number(request.expiresAt) || Date.now() + 10 * 60_000;
-    rewardedEnergyButton.textContent = '보상 확인 중…';
-    for (let attempt = 0; currentServerTime() < rewardedEnergyPendingUntil; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, attempt < 6 ? 3000 : 15_000));
-      const reward = await getRewardedEnergyStatus(request.requestId);
-      if (Number.isFinite(reward.serverNow)) serverClockOffsetMs = reward.serverNow - Date.now();
-      if (reward.status !== 'pending') {
-        rewardedEnergyPendingUntil = 0;
-        await refreshEconomyProfile();
-        break;
-      }
+    clearRewardedEnergyRetry();
+    rewardedEnergyAdReady = false;
+    if (request.profile) renderServerProfile(request.profile);
+    else await refreshEconomyProfile();
+    const availableEnergy = Number(serverProfile?.rankedEnergy || 0);
+    if (availableEnergy <= 0) {
+      showToast('에너지를 충전하지 못했습니다. 다시 시도해 주세요.', 'error');
+      return;
     }
+    showToast(request.granted === false ? '사용할 수 있는 에너지가 확인됐습니다.' : '에너지 1개가 충전되었습니다.', 'success');
+    closeRewardDialog(true);
+    await startSelectedMode(GAME_MODES.RANKED);
   } catch (error) {
+    clearRewardedEnergyRetry();
     showToast(friendlyAdError(error), 'error');
   } finally {
+    rewardConfirmButton.disabled = false;
+    rewardCancelButton.disabled = false;
+    rewardConfirmButton.innerHTML = '광고 보고 충전 <span>⚡</span>';
     renderEnergy();
   }
-});
+}
+
+rewardConfirmButton.addEventListener('click', watchRewardedEnergyAndStart);
+rewardCancelButton.addEventListener('click', () => closeRewardDialog());
 privacyOptionsButton.addEventListener('click', async () => {
   try {
     const {showPrivacyOptions} = await import('./rewarded-energy.js');
@@ -2266,6 +2370,10 @@ tutorialDismiss.addEventListener('click',()=>{ unlockAudioSession(); closeTutori
 gameShell.addEventListener('contextmenu',e=>e.preventDefault());
 installCanvasInputGuards(canvas);
 window.addEventListener('keydown',e=>{
+  if (!rewardDialog.hidden) {
+    if (e.key === 'Escape') { e.preventDefault(); closeRewardDialog(); }
+    return;
+  }
   if (!resumeDialog.hidden) return;
   const openPanel = [profilePanel, labPanel, settingsPanel].find(panel => !panel.hidden);
   if (openPanel) {
@@ -2311,6 +2419,11 @@ function continueAfterInterruption() {
 }
 
 async function handleAndroidBackButton() {
+  if (!rewardDialog.hidden) {
+    lastAndroidBackAt = 0;
+    closeRewardDialog();
+    return;
+  }
   if (!resumeDialog.hidden) {
     lastAndroidBackAt = 0;
     if (resumeDialogMode === 'restore') discardSavedRun();

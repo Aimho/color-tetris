@@ -82,6 +82,8 @@
                 <div><dt>도달 레벨</dt><dd id="resultLevel">—</dd></div>
                 <div><dt>시즌 기록</dt><dd id="resultSeasonBest">—</dd></div>
                 <div><dt>현재 순위</dt><dd id="resultRank">—</dd></div>
+                <div class="result-spark" id="resultSparkRewardRow" hidden><dt>이번 SPARK</dt><dd id="resultSparkReward">+0</dd></div>
+                <div class="result-spark" id="resultSparkBalanceRow" hidden><dt>보유 SPARK</dt><dd id="resultSparkBalance">0</dd></div>
               </dl>
             </section>
             <section class="home-ranking" id="homeRanking" aria-labelledby="homeRankingTitle" hidden>
@@ -99,7 +101,6 @@
             <section class="ranked-energy-panel" id="rankedEnergyPanel" aria-live="polite">
               <p><span>RANKED ENERGY</span><strong id="rankedEnergyValue">⚡ — / 3</strong></p>
               <small id="rankedEnergyTimer">서버에서 에너지를 확인하고 있어요.</small>
-              <button id="rewardedEnergyButton" type="button" hidden>광고 보고 +1</button>
             </section>
             <section class="season-result-nudge" id="seasonResultNudge" aria-labelledby="seasonResultNudgeTitle" hidden>
               <div>
@@ -297,6 +298,18 @@
         <div class="event-guide"><strong>REACTOR</strong><span>연쇄 파워가 높을수록 ×2·×3 배수 셀이 최대 3개 떨어집니다. 같은 폭발에 포함하면 최대 6배 점수를 얻습니다.</span></div>
         <button class="tutorial-close" id="tutorialClose">게임 시작 <span>▶</span></button>
         <small>이 안내는 처음 한 번만 표시됩니다. 홈의 게임 방법에서 다시 볼 수 있습니다.</small>
+      </div>
+    </section>
+    <section class="reward-dialog" id="rewardDialog" role="dialog" aria-modal="true" aria-labelledby="rewardDialogTitle" aria-describedby="rewardDialogCopy" hidden>
+      <div class="reward-card">
+        <p class="overlay-kicker">ENERGY EMPTY</p>
+        <div class="reward-energy-mark" aria-hidden="true">◇ <span>→</span> ◆</div>
+        <h2 id="rewardDialogTitle">광고 보고<br />도전할까요?</h2>
+        <p id="rewardDialogCopy">광고 1개를 끝까지 보면 에너지 1개가 충전되고 바로 랭킹 게임을 시작합니다.</p>
+        <div class="reward-actions">
+          <button id="rewardConfirmButton" type="button">광고 보고 충전 <span>⚡</span></button>
+          <button id="rewardCancelButton" type="button">취소</button>
+        </div>
       </div>
     </section>
     <section class="resume-dialog" id="resumeDialog" role="dialog" aria-modal="true" aria-labelledby="resumeTitle" hidden>

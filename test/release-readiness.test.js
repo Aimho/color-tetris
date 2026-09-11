@@ -8,7 +8,7 @@ const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf
 
 test('정식 버전과 Android 버전 메타데이터가 일치한다', () => {
   assert.equal(packageJson.version, '1.0.0');
-  assert.match(androidBuild, /versionCode 8\b/);
+  assert.match(androidBuild, /versionCode 15\b/);
   assert.match(androidBuild, /versionName "1\.0\.0"/);
   assert.match(mainSource, /buildVersion\.textContent = `VERSION \$\{__APP_VERSION__\}`/);
   assert.doesNotMatch(mainSource, /buildVersion\.textContent = `[^`]*BUILD/);

@@ -49,6 +49,8 @@ export function createGameResult({
       : difference > 0 ? `시즌 최고까지 ${difference.toLocaleString()}점 남았어요.` : 'TOP 50 진입에 도전해보세요.',
     seasonBest,
     rank:rank || null,
+    sparkReward:Math.max(0, Number(submission.sparkReward) || 0),
+    sparkBalance:Math.max(0, Number(submission.sparkBalance) || 0),
   };
 }
 
@@ -57,6 +59,17 @@ export function createShareText(result, platformLabel = '') {
   return `COLOR BOMB ${result.score.toLocaleString()}점\nLV ${result.level}${rankText}! 같은 색 6칸부터 연쇄가 시작됩니다.`;
 }
 
+export function createShareUrl({platform, androidStoreUrl, iosStoreUrl, origin, pathname}) {
+  if (platform === 'android') {
+    return androidStoreUrl || 'https://play.google.com/store/apps/details?id=com.aimho.games.colorbomb';
+  }
+  if (platform === 'ios') return iosStoreUrl || 'https://color-tetrix-aimho.web.app/';
+  return `${origin}${pathname}`;
+}
+
 function base(kind, title, score, level) {
-  return {kind, title, detail:`${score.toLocaleString()}점 · LV ${level}`, score, level, seasonBest:null, rank:null};
+  return {
+    kind, title, detail:`${score.toLocaleString()}점 · LV ${level}`,
+    score, level, seasonBest:null, rank:null, sparkReward:null, sparkBalance:null,
+  };
 }

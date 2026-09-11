@@ -25,7 +25,8 @@ test('랭킹 초기 상태는 준비 중 대신 로딩 중으로 안내한다', 
 
 test('에너지 응답이 없으면 충전 중으로 오인시키지 않는다', async () => {
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
-  assert.match(main, /serverProfile\s*\?\s*'에너지 충전 중 <span>⚡<\/span>'\s*:\s*'랭킹 점검 중 <span>◆<\/span>'/);
+  assert.match(main, /!status\.ready \|\| !serverProfile/);
+  assert.match(main, /'랭킹 점검 중 <span>◆<\/span>'/);
   assert.match(main, /랭킹 연결 실패 <span>◆<\/span>/);
 });
 
@@ -203,19 +204,20 @@ test('그래픽 테마는 가로 스크롤 카드로 선택한다', async () => 
   assert.match(main, /theme === 'neon'/);
 });
 
-test('홈은 프로필 서버 기준 랭킹 에너지와 광고 충전 UI를 표시한다', async () => {
+test('홈은 프로필 서버 기준 랭킹 에너지와 통합 랭킹 CTA를 표시한다', async () => {
   const [html, main, service] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),
     readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/ranked-service.js', import.meta.url), 'utf8'),
   ]);
   assert.match(html, /id="rankedEnergyValue">⚡ — \/ 3/);
-  assert.match(html, /id="rewardedEnergyButton"[^>]*hidden/);
-  assert.match(html, /광고 보고 \+1/);
+  assert.doesNotMatch(html, /id="rewardedEnergyButton"/);
+  assert.match(html, /id="rewardDialog"[^>]*role="dialog"/);
+  assert.match(html, /광고 1개를 끝까지 보면 에너지 1개가 충전되고 바로 랭킹 게임을 시작합니다/);
   assert.match(main, /nextProfile\.nextEnergyAt - currentServerTime\(\)/);
   assert.match(main, /nextEnergyRefreshAllowedAt = Date\.now\(\) \+ 30_000/);
   assert.match(main, /후 충전/);
-  assert.match(main, /에너지 충전 중 <span>⚡<\/span>/);
+  assert.match(main, /energy > 0 \? '랭킹 도전 <span>◆<\/span>' : '랭킹 도전 <span>⚡<\/span>'/);
   assert.doesNotMatch(service, /httpsCallable\(functions, 'getRankedEnergy'/);
 });
 
@@ -245,30 +247,83 @@ test('홈은 랭킹·미션·상점을 명확히 분리하고 연습을 보조 �
   assert.match(style, /#rankedStartButton\s*\{[^}]*flex-basis:\s*100%/);
 });
 
-test('에너지가 가득 차면 광고 충전 버튼을 숨긴다', async () => {
-  const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
-  assert.match(main, /rewardedEnergyButton\.hidden = !isNativeAndroid \|\| !nextProfile \|\| energy >= 3/);
-  assert.doesNotMatch(main, /에너지 충전 완료['"]/);
+test('에너지 0일 때만 랭킹 CTA에서 광고 확인창을 연다', async () => {
+  const [html, main] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+  ]);
+  assert.doesNotMatch(html, /rewardedEnergyButton/);
+  assert.match(main, /Number\(serverProfile\?\.rankedEnergy \|\| 0\) > 0/);
+  assert.match(main, /openRewardDialog\(\)/);
+  assert.match(main, /rewardConfirmButton\.addEventListener\('click', watchRewardedEnergyAndStart\)/);
+  assert.match(main, /await startSelectedMode\(GAME_MODES\.RANKED\)/);
 });
 
-test('광고 보상 콜백이 지연되는 동안 같은 광고를 다시 재생하지 않는다', async () => {
+test('광고 한 편 완료 즉시 에너지를 지급하고 앱 재실행에서도 안전하게 복구한다', async () => {
   const [main, rewarded, functions] = await Promise.all([
     readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/rewarded-energy.js', import.meta.url), 'utf8'),
     readFile(new URL('../functions/index.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(main, /rewardedEnergyPendingUntil = Number\(request\.expiresAt\)/);
-  assert.match(main, /energy >= 3 \|\| rewardPending/);
-  assert.match(main, /currentServerTime\(\) < rewardedEnergyPendingUntil/);
-  assert.match(main, /attempt < 6 \? 3000 : 15_000/);
-  assert.match(main, /reward\.status !== 'pending'/);
+  assert.match(main, /preloadRewardedEnergyAd\(\)/);
+  assert.match(main, /rewardedEnergyVerificationPending/);
+  assert.match(main, /광고 불러오는 중…/);
+  assert.match(main, /에너지 1개가 충전되었습니다/);
+  assert.doesNotMatch(main, /rewardStatusDeadline|보상 확인이 지연되고 있습니다/);
   assert.doesNotMatch(main, /serverProfile\?\.rankedEnergy[^\n]*> previous/);
-  assert.match(rewarded, /request\.shown \|\| stored\?\.requestId === request\.requestId/);
+  assert.match(rewarded, /getRewardedEnergyStatus\(stored\.requestId\)/);
+  assert.match(rewarded, /status\.status === 'verified'/);
+  assert.match(rewarded, /status\.status === 'shown' && stored\.earned/);
+  assert.match(rewarded, /status\.status === 'shown'[\s\S]*cancelRewardRequest\(\{requestId:stored\.requestId\}\)/);
+  assert.match(rewarded, /rememberPendingReward\(\{\.\.\.request, earned:true\}\)/);
+  assert.match(rewarded, /cancelRewardRequest\(\{requestId:stored\.requestId\}\)/);
+  assert.match(rewarded, /if \(request\.shown\)/);
+  assert.match(rewarded, /export async function prepareRewardedEnergyAd\(\)/);
+  assert.match(rewarded, /preparedReward = reward\.awaitingVerification \|\| reward\.alreadyVerified \? null : reward/);
   assert.match(rewarded, /color-bomb:rewarded-energy-pending/);
   assert.match(functions, /getRewardedEnergyRequestStatus/);
+  assert.match(functions, /completeRewardedEnergyRequest/);
+  assert.match(functions, /const result = await db\.runTransaction/);
+  assert.match(functions, /verificationSource:'client-reward-callback'/);
+  assert.match(functions, /reward\.status === 'shown' \? 'shown'/);
+  assert.match(main, /request\.granted === false \? '사용할 수 있는 에너지가 확인됐습니다\.'/);
   assert.match(functions, /markRewardedEnergyRequestShown/);
   assert.match(functions, /cancelRewardedEnergyRequest/);
   assert.match(rewarded, /cancelRewardRequest\(\{requestId:request\.requestId\}\)/);
+  assert.match(rewarded, /completeRewardRequest\(\{requestId:request\.requestId\}\)/);
+  assert.match(rewarded, /immediatelyVerified:true/);
+  assert.match(rewarded, /onRewardedVideoAdDismissed/);
+  assert.match(rewarded, /const rewarded = AdMob\.showRewardVideoAd\(\)\.then/);
+  assert.match(rewarded, /Promise\.all\(\[rewarded, dismissed\]\)/);
+  assert.match(rewarded, /await waitForAppForeground\(\)/);
+  assert.match(rewarded, /CapacitorApp\.getState\(\)/);
+  assert.match(rewarded, /dismissedListener\?\.remove/);
+  assert.match(rewarded, /request\.alreadyVerified \|\| request\.awaitingVerification/);
+  assert.match(main, /function clearRewardedEnergyRetry\(\)/);
+  assert.match(main, /Math\.min\(3000, remaining\)/);
+});
+
+test('검증된 랭킹 점수를 SPARK로 정산하고 결과 화면에 표시한다', async () => {
+  const [html, main, functions] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../functions/index.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(html, /id="resultSparkReward"/);
+  assert.match(html, /id="resultSparkBalance"/);
+  assert.match(main, /result\.sparkReward\.toLocaleString\(\)/);
+  assert.match(functions, /scoreToSpark\(ledger\.score, earnedToday\)/);
+  assert.match(functions, /score_spark_daily/);
+  assert.match(functions, /scoreSparkReward:sparkReward/);
+});
+
+test('AdMob 네이티브 프록시를 Promise 반환값으로 직접 노출하지 않는다', async () => {
+  const rewarded = await readFile(new URL('../src/rewarded-energy.js', import.meta.url), 'utf8');
+  const getAdMob = rewarded.match(/async function getAdMob\(\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+
+  assert.doesNotMatch(getAdMob, /return AdMob;/);
+  assert.match(getAdMob, /return \{ AdMob \};/);
+  assert.match(rewarded, /const \{ AdMob \} = await getAdMob\(\);/);
 });
 
 test('도움말의 하단 시작 버튼은 게임 시작 흐름에서만 보인다', async () => {
@@ -295,7 +350,8 @@ test('상점은 SPARK 잔액과 구매 가능 여부를 명확히 표시한다',
   ]);
   assert.match(html, /id="shopSparkBalance">0 SPARK/);
   assert.match(main, /button\.disabled = !serverProfile \|\| isEquipped \|\| \(!isOwned && !canAfford\)/);
-  assert.match(main, /'SPARK 부족'/);
+  assert.match(main, /isOwned \? '장착' : `\$\{item\.price\} SPARK`/);
+  assert.doesNotMatch(main, /'SPARK 부족'/);
   assert.match(main, /nextProfile = await api\.purchasePlayerItem\(itemId\)/);
   assert.match(main, /dataset\.blockSkin === 'jelly'/);
   assert.match(main, /dataset\.blockSkin === 'prism'/);
