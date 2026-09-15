@@ -6,6 +6,14 @@
 
 **Play:** https://color-tetrix-aimho.web.app/
 
+## 개발 환경
+
+- Node.js 22 이상
+- JDK 21 (`.java-version`에 고정)
+- Android Gradle Plugin 9.0.x / Gradle 9.1.x
+
+AGP 9 호환을 위해 현재 Capacitor AdMob 플러그인에는 설치 후 최적화 ProGuard 패치가 적용됩니다. `android.builtInKotlin=false`와 `android.newDsl=false`는 플러그인이 AGP 9의 내장 Kotlin·새 DSL을 지원할 때 제거할 임시 호환 설정이며, AGP 10으로 올리기 전에 반드시 제거 가능 여부를 확인해야 합니다.
+
 ## v1.0.0 변경 내용
 
 - 앱 이름을 `COLOR BOMB`으로 변경하고 웹, PWA, 공유 이미지와 Capacitor 설정을 통일했습니다.

@@ -7,11 +7,43 @@ const androidBuild = readFileSync(new URL('../android/app/build.gradle', import.
 const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 
 test('정식 버전과 Android 버전 메타데이터가 일치한다', () => {
-  assert.equal(packageJson.version, '1.0.0');
-  assert.match(androidBuild, /versionCode 15\b/);
-  assert.match(androidBuild, /versionName "1\.0\.0"/);
+  assert.equal(packageJson.version, '1.0.1');
+  assert.match(androidBuild, /versionCode 16\b/);
+  assert.match(androidBuild, /versionName "1\.0\.1"/);
   assert.match(mainSource, /buildVersion\.textContent = `VERSION \$\{__APP_VERSION__\}`/);
   assert.doesNotMatch(mainSource, /buildVersion\.textContent = `[^`]*BUILD/);
+});
+
+test('Android는 edge-to-edge와 대형 화면 회전을 지원하고 AGP 9 최적화를 사용한다', () => {
+  const manifest = readFileSync(new URL('../android/app/src/main/AndroidManifest.xml', import.meta.url), 'utf8');
+  const activity = readFileSync(new URL('../android/app/src/main/java/com/aimho/games/colorbomb/MainActivity.java', import.meta.url), 'utf8');
+  const rootBuild = readFileSync(new URL('../android/build.gradle', import.meta.url), 'utf8');
+  const appBuild = readFileSync(new URL('../android/app/build.gradle', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(manifest, /android:screenOrientation=/);
+  assert.match(activity, /EdgeToEdge\.enable\(this\)/);
+  assert.match(rootBuild, /com\.android\.tools\.build:gradle:9\./);
+  assert.match(appBuild, /minifyEnabled true/);
+  assert.match(appBuild, /shrinkResources true/);
+  assert.match(appBuild, /proguard-android-optimize\.txt/);
+});
+
+test('네이티브와 PWA는 회전을 허용하고 릴리스 도구 버전을 고정한다', () => {
+  const iosInfo = readFileSync(new URL('../ios/App/App/Info.plist', import.meta.url), 'utf8');
+  const webManifest = readFileSync(new URL('../public/manifest.webmanifest', import.meta.url), 'utf8');
+  const javaVersion = readFileSync(new URL('../.java-version', import.meta.url), 'utf8').trim();
+  const wrapper = readFileSync(new URL('../android/gradle/wrapper/gradle-wrapper.properties', import.meta.url), 'utf8');
+
+  assert.match(iosInfo, /UIInterfaceOrientationLandscapeLeft/);
+  assert.match(iosInfo, /UIInterfaceOrientationLandscapeRight/);
+  assert.doesNotMatch(webManifest, /"orientation"\s*:/);
+  assert.equal(javaVersion, '21');
+  assert.match(wrapper, /distributionSha256Sum=b84e04fa845fecba48551f425957641074fcc00a88a84d2aae5808743b35fc85/);
+});
+
+test('AdMob 앱 인증용 app-ads.txt가 공식 게시자 정보를 노출한다', () => {
+  const appAds = readFileSync(new URL('../public/app-ads.txt', import.meta.url), 'utf8').trim();
+  assert.equal(appAds, 'google.com, pub-8700977029674142, DIRECT, f08c47fec0942fa0');
 });
 
 test('개인정보처리방침은 광고·오류 분석과 계정 삭제 경로를 안내한다', () => {
