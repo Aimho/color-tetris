@@ -1,4 +1,5 @@
 import './style.css';
+import { App } from '@capacitor/app';
 import { actionForKey, canStartPointerGesture, dragStepTarget, installCanvasInputGuards } from './input.js';
 import { findColorGroups, groupSizesByCell } from './board.js';
 import { configureAudioSession, createAudioContext, primeLegacyMediaChannel, resumeIfSuspended, unlockAudioContext } from './audio.js';
@@ -6,7 +7,7 @@ import { createPieceColors, rotateCellClockwise, rotateSquareCells, wallKickOffs
 import { MusicEngine } from './music.js';
 import { canResetLock, getClearIntensity, getClearScore, getDropInterval, getLevelForClears, getLockDelay } from './difficulty.js';
 import { attachQueuedSpecial, createSpecialRewardQueue, earnSpecialRewards, resolveSpecialEffects } from './events.js';
-import { chargeReactor, finishRun, normalizeTheme, readProfile, unlockedThemes } from './progression.js';
+import { chargeReactor, finishRun, normalizeTheme, readProfile } from './progression.js';
 import { chooseMultiplierDrop, getChainPower, getClearSpecialMultiplier, getMultiplierRewards } from './reactor.js';
 import {
   GAME_MODES,
@@ -20,7 +21,7 @@ import { createScoreLedger } from './ranking-model.js';
 import { createRankedRandom } from '../functions/shared/ranked-random.js';
 import { SHOP_CATALOG } from '../functions/shared/economy-contract.js';
 import { setupPwa } from './pwa.js';
-import { createGameResult, createShareText } from './game-result.js';
+import { createGameResult, createShareText, createShareUrl } from './game-result.js';
 import { captureClientError, initializeSentry } from './sentry.js';
 import { roundRectPath } from './canvas-path.js';
 import { cloneSerializable } from './platform-compat.js';
@@ -84,6 +85,10 @@ const resultScore = document.querySelector('#resultScore');
 const resultLevel = document.querySelector('#resultLevel');
 const resultSeasonBest = document.querySelector('#resultSeasonBest');
 const resultRank = document.querySelector('#resultRank');
+const resultSparkRewardRow = document.querySelector('#resultSparkRewardRow');
+const resultSparkReward = document.querySelector('#resultSparkReward');
+const resultSparkBalanceRow = document.querySelector('#resultSparkBalanceRow');
+const resultSparkBalance = document.querySelector('#resultSparkBalance');
 const homeRanking = document.querySelector('#homeRanking');
 const homeLeaderboardList = document.querySelector('#homeLeaderboardList');
 const rankingButton = document.querySelector('#rankingButton');
@@ -100,7 +105,9 @@ const rankedEnergyPanel = document.querySelector('#rankedEnergyPanel');
 const rankedEnergyValue = document.querySelector('#rankedEnergyValue');
 const rankedEnergyTimer = document.querySelector('#rankedEnergyTimer');
 const homeHelpButton = document.querySelector('#homeHelpButton');
-const rewardedEnergyButton = document.querySelector('#rewardedEnergyButton');
+const rewardDialog = document.querySelector('#rewardDialog');
+const rewardConfirmButton = document.querySelector('#rewardConfirmButton');
+const rewardCancelButton = document.querySelector('#rewardCancelButton');
 const pauseButton = document.querySelector('#pauseButton');
 const profileButton = document.querySelector('#profileButton');
 const profileNotificationDot = document.querySelector('#profileNotificationDot');
@@ -121,19 +128,23 @@ const nicknameForm = document.querySelector('#nicknameForm');
 const nicknameInput = document.querySelector('#nicknameInput');
 const nicknameHint = document.querySelector('#nicknameHint');
 const socialConnectButton = document.querySelector('#socialConnectButton');
-const themeOptions = document.querySelector('#themeOptions');
 const sparkBalance = document.querySelector('#sparkBalance');
+const shopSparkBalance = document.querySelector('#shopSparkBalance');
 const missionList = document.querySelector('#missionList');
 const missionTabs = [...document.querySelectorAll('[data-mission-tab]')];
 const shopList = document.querySelector('#shopList');
 const settingsForm = document.querySelector('#settingsForm');
 const openControlsButton = document.querySelector('#openControlsButton');
 const privacyOptionsButton = document.querySelector('#privacyOptionsButton');
+const deleteAccountButton = document.querySelector('#deleteAccountButton');
 const resetLocalDataButton = document.querySelector('#resetLocalDataButton');
 const settingsVersion = document.querySelector('#settingsVersion');
+const appToast = document.querySelector('#appToast');
 const isTouchDevice = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 const isNativeApp = globalThis.Capacitor?.isNativePlatform?.() === true;
+const nativePlatform = globalThis.Capacitor?.getPlatform?.() || 'web';
 const androidStoreUrl = String(import.meta.env.VITE_ANDROID_STORE_URL || '').trim();
+const iosStoreUrl = String(import.meta.env.VITE_IOS_STORE_URL || '').trim();
 const reducedMotionMedia = matchMedia('(prefers-reduced-motion: reduce)');
 
 let board, eventBoard, active, queue, hold, holdUsed, score, level, lines, running, paused;
@@ -145,8 +156,12 @@ let arrowBeams = [], bombBursts = [], multiplierBursts = [], multiplierDrops = [
 let specialRewards = createSpecialRewardQueue();
 let tutorialStartsGame = false, piecesSpawned = 0, hintTimer;
 let tutorialOpener = null, autoPaused = false;
+let resumeDialogMode = null;
 let gestureStart = null;
 let leaderboardApiPromise;
+let toastTimer;
+let lastAndroidBackAt = 0;
+let androidBackListenerHandle;
 let randomSource = Math.random;
 let reactorCharge = 0, reactorPower = 0, maxChain = 0;
 let profile = readProfile();
@@ -179,7 +194,12 @@ let energyTimerId = null;
 let economyRefreshPromise = null;
 let serverClockOffsetMs = 0;
 let nextEnergyRefreshAllowedAt = 0;
-let rewardedEnergyPendingUntil = 0;
+let rewardedEnergyAdReady = false;
+let rewardedEnergyAdLoading = false;
+let rewardedEnergyVerificationPending = false;
+let nextRewardedPreloadAt = 0;
+let rewardedEnergyRetryTimer = null;
+let rankedServiceReady = false;
 let currentGameResult = null;
 const rankedStartGuard = createOperationGuard();
 const e2eMode = import.meta.env.VITE_E2E === 'true';
@@ -233,30 +253,29 @@ function renderLocalProfile() {
     const value = Number(profile[element.dataset.profileStat] || 0);
     element.textContent = value.toLocaleString();
   });
-  themeOptions.replaceChildren(...unlockedThemes(profile).map(theme => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.dataset.theme = theme.id;
-    button.setAttribute('aria-pressed', String(normalizeTheme(profile.theme) === theme.id));
-    button.setAttribute('aria-label', `${theme.label} 테마: ${theme.caption}`);
-    const preview = document.createElement('span');
-    preview.className = 'theme-preview';
-    preview.setAttribute('aria-hidden', 'true');
-    preview.replaceChildren(...[0, 1, 2, 3].map(color => {
-      const cell = document.createElement('i');
-      cell.style.setProperty('--preview-color', COLORS[color]);
-      return cell;
-    }));
-    const copy = document.createElement('span');
-    copy.className = 'theme-copy';
-    const label = document.createElement('strong');
-    label.textContent = theme.label;
-    const caption = document.createElement('small');
-    caption.textContent = theme.caption;
-    copy.append(label, caption);
-    button.append(preview, copy);
-    return button;
-  }));
+}
+
+function showToast(message, tone = 'info') {
+  if (!appToast) return;
+  clearTimeout(toastTimer);
+  appToast.textContent = message;
+  appToast.dataset.tone = tone;
+  appToast.hidden = false;
+  requestAnimationFrame(() => appToast.classList.add('visible'));
+  toastTimer = setTimeout(() => {
+    appToast.classList.remove('visible');
+    setTimeout(() => { appToast.hidden = true; }, 180);
+  }, 3200);
+}
+
+function friendlyAdError(error) {
+  const detail = String(error?.message || error || '').toLowerCase();
+  if (detail.includes('network') || detail.includes('offline')) return '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
+  if (detail.includes('no fill') || detail.includes('no ad')) return '현재 이용 가능한 광고가 없습니다. 잠시 후 다시 시도해 주세요.';
+  if (detail.includes('publisher') || detail.includes('consent') || detail.includes('form')) {
+    return '광고 개인정보 설정을 준비하고 있습니다. 잠시 후 다시 시도해 주세요.';
+  }
+  return '광고를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
 }
 
 function renderServerProfile(nextProfile) {
@@ -287,6 +306,11 @@ function applyServerCosmetics(equipped = {}) {
     if (equipped[slot]) document.body.dataset[slot] = equipped[slot];
     else delete document.body.dataset[slot];
   }
+  profile.theme = equipped.appTheme === 'pixel-theme'
+    ? 'pixel'
+    : equipped.appTheme === 'neon-theme' ? 'neon' : 'default';
+  try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
+  applyProfileTheme();
   music?.setTheme(equipped.lobbyBgm);
   draw();
 }
@@ -297,7 +321,7 @@ function currentServerTime() {
 
 function renderEnergy(nextProfile = serverProfile) {
   const energy = nextProfile ? Math.min(3, Math.max(0, Number(nextProfile.rankedEnergy) || 0)) : 3;
-  const rewardPending = currentServerTime() < rewardedEnergyPendingUntil;
+  const rewardPending = rewardedEnergyVerificationPending;
   rankedEnergyValue.textContent = `${'◆ '.repeat(energy)}${'◇ '.repeat(3 - energy)}`.trim();
   if (!nextProfile) {
     rankedEnergyTimer.textContent = '서버 연결 중';
@@ -315,20 +339,67 @@ function renderEnergy(nextProfile = serverProfile) {
   }
   if (energyTimerId) clearInterval(energyTimerId);
   energyTimerId = setInterval(() => renderEnergy(serverProfile), 1000);
-  rewardedEnergyButton.hidden = !isNativeAndroid || !nextProfile || energy >= 3;
-  rewardedEnergyButton.disabled = !nextProfile || energy >= 3 || rewardPending;
-  rewardedEnergyButton.textContent = rewardPending ? '보상 확인 중…' : '광고 보고 +1';
   if (isNativeApp && !running) {
-    rankedStartButton.disabled = !nextProfile || energy <= 0;
-    rankedStartButton.innerHTML = energy > 0 ? '랭킹 도전 <span>◆</span>' : '에너지 충전 중 <span>⚡</span>';
+    rankedStartButton.disabled = !nextProfile || !rankedServiceReady || rewardPending
+      || energy === 0 && !isNativeAndroid;
+    rankedStartButton.innerHTML = rewardPending
+      ? '보상 확인 중… <span>⚡</span>'
+      : energy > 0 ? '랭킹 도전 <span>◆</span>'
+        : isNativeAndroid ? '랭킹 도전 <span>⚡</span>' : '에너지 충전 중 <span>⚡</span>';
   }
+}
+
+async function preloadRewardedEnergyAd() {
+  rewardedEnergyAdLoading = true;
+  renderEnergy();
+  try {
+    const {prepareRewardedEnergyAd} = await import('./rewarded-energy.js');
+    const request = await prepareRewardedEnergyAd();
+    if (request.awaitingVerification) {
+      rewardedEnergyVerificationPending = true;
+      scheduleRewardedEnergyRetry(request);
+      return;
+    }
+    rewardedEnergyVerificationPending = false;
+    rewardedEnergyAdReady = !request.alreadyVerified;
+    if (request.alreadyVerified) await refreshEconomyProfile();
+  } catch {
+    rewardedEnergyAdReady = false;
+    rewardedEnergyVerificationPending = false;
+    nextRewardedPreloadAt = Date.now() + 30_000;
+  } finally {
+    rewardedEnergyAdLoading = false;
+    renderEnergy();
+  }
+}
+
+function clearRewardedEnergyRetry() {
+  clearTimeout(rewardedEnergyRetryTimer);
+  rewardedEnergyRetryTimer = null;
+}
+
+function scheduleRewardedEnergyRetry(request) {
+  clearRewardedEnergyRetry();
+  const remaining = Number(request.expiresAt) - Date.now();
+  if (remaining <= 0) {
+    rewardedEnergyVerificationPending = false;
+    renderEnergy();
+    return;
+  }
+  rewardedEnergyRetryTimer = setTimeout(() => {
+    rewardedEnergyRetryTimer = null;
+    nextRewardedPreloadAt = 0;
+    preloadRewardedEnergyAd();
+  }, Math.min(3000, remaining));
 }
 
 function renderMissions() {
   const missions = selectedMissionPeriod === 'daily'
     ? serverProfile?.dailyMissions || []
     : serverProfile?.weeklyMissions || [];
-  sparkBalance.textContent = `${Number(serverProfile?.sparkBalance || 0).toLocaleString()} SPARK`;
+  const balanceLabel = `${Number(serverProfile?.sparkBalance || 0).toLocaleString()} SPARK`;
+  sparkBalance.textContent = balanceLabel;
+  shopSparkBalance.textContent = balanceLabel;
   missionTabs.forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.missionTab === selectedMissionPeriod)));
   missionList.replaceChildren(...missions.map(mission => {
     const row = document.createElement('article');
@@ -350,6 +421,11 @@ function renderMissions() {
 function renderShop() {
   const owned = new Set(serverProfile?.ownedItems || []);
   const equipped = new Set(Object.values(serverProfile?.equippedItems || {}));
+  const balance = Math.max(0, Number(serverProfile?.sparkBalance) || 0);
+  const slotLabels = {
+    appTheme:'앱 테마', boardTheme:'보드 스킨', blockSkin:'블록 스킨',
+    clearEffect:'폭발 효과', lobbyBgm:'로비 BGM', profileFrame:'프로필 프레임',
+  };
   shopList.replaceChildren(...(serverProfile?.shopCatalog || SHOP_CATALOG).map(item => {
     const row = document.createElement('article');
     row.className = `shop-item shop-${item.id}`;
@@ -360,12 +436,18 @@ function renderShop() {
     const slot = document.createElement('small');
     const button = document.createElement('button');
     label.textContent = item.label;
-    slot.textContent = item.slot.replace(/[A-Z]/g, match => ` ${match}`).toUpperCase();
+    const isOwned = owned.has(item.id) || item.price === 0;
+    const isEquipped = equipped.has(item.id);
+    const canAfford = balance >= item.price;
+    slot.textContent = slotLabels[item.slot] || item.slot;
     button.type = 'button';
     button.dataset.shopItem = item.id;
-    button.dataset.shopAction = owned.has(item.id) ? 'equip' : 'purchase';
-    button.disabled = !serverProfile || equipped.has(item.id);
-    button.textContent = equipped.has(item.id) ? '장착됨' : owned.has(item.id) ? '장착' : `${item.price} SPARK`;
+    button.dataset.shopAction = isOwned ? 'equip' : 'purchase';
+    button.disabled = !serverProfile || isEquipped || (!isOwned && !canAfford);
+    button.setAttribute('aria-label', `${item.label} ${isEquipped ? '장착됨' : isOwned ? '장착' : canAfford ? `${item.price} SPARK로 구매` : `구매 불가, ${item.price} SPARK 필요`}`);
+    button.textContent = isEquipped
+      ? '장착됨'
+      : isOwned ? '장착' : `${item.price} SPARK`;
     copy.append(label, slot);
     row.append(swatch, copy, button);
     return row;
@@ -496,20 +578,21 @@ async function refreshRankedAvailability() {
     return;
   }
   rankedEnergyPanel.hidden = false;
+  rankedServiceReady = false;
   rankedStartButton.disabled = true;
   rankedStartButton.innerHTML = '로딩 중… <span>◆</span>';
   try {
     const { rankedServiceStatus } = await import('./ranked-service.js');
     const status = await rankedServiceStatus();
+    rankedServiceReady = status.ready;
     const energy = Number(serverProfile?.rankedEnergy || 0);
-    rankedStartButton.disabled = !status.ready || !serverProfile || energy <= 0;
-    rankedStartButton.innerHTML = status.ready && energy > 0
-      ? '랭킹 도전 <span>◆</span>'
-      : serverProfile
-        ? '에너지 충전 중 <span>⚡</span>'
-        : '랭킹 점검 중 <span>◆</span>';
+    rankedStartButton.disabled = !status.ready || !serverProfile;
+    rankedStartButton.innerHTML = status.ready && serverProfile
+      ? energy > 0 ? '랭킹 도전 <span>◆</span>' : '랭킹 도전 <span>⚡</span>'
+      : '랭킹 점검 중 <span>◆</span>';
     rankedStartButton.title = status.reason;
   } catch {
+    rankedServiceReady = false;
     rankedStartButton.disabled = true;
     rankedStartButton.innerHTML = '랭킹 연결 실패 <span>◆</span>';
     rankedStartButton.title = '랭킹 서버에 연결할 수 없습니다.';
@@ -753,6 +836,7 @@ function restoreRun(snapshot) {
   updateReactor();
   draw();
   gameShell.inert = true;
+  resumeDialogMode = 'restore';
   resumeDialog.hidden = false;
   resumeDialog.querySelector('#resumeTitle').innerHTML = '저장된 게임을<br />이어갈까요?';
   resumeDialog.querySelector('.resume-card > p:not(.overlay-kicker)').textContent =
@@ -1027,6 +1111,28 @@ function drawCell(context, x, y, colorIndex, size=CELL, alpha=1, event=null) {
     context.lineTo(px + s * .55, py + s * .88);
     context.closePath();
     context.fill();
+  } else if (document.body.dataset.blockSkin === 'jelly') {
+    context.save();
+    context.globalAlpha = alpha * .38;
+    context.fillStyle = '#ffffff';
+    context.beginPath();
+    context.arc(px + s * .32, py + s * .28, Math.max(2, s * .11), 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+  } else if (document.body.dataset.blockSkin === 'prism') {
+    context.save();
+    context.globalAlpha = alpha * .7;
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = Math.max(1, size * .045);
+    context.beginPath();
+    context.moveTo(px + s * .5, py + s * .08);
+    context.lineTo(px + s * .9, py + s * .38);
+    context.lineTo(px + s * .72, py + s * .9);
+    context.lineTo(px + s * .28, py + s * .9);
+    context.lineTo(px + s * .1, py + s * .38);
+    context.closePath();
+    context.stroke();
+    context.restore();
   }
   if (settings.colorAssist) {
     const corner = Math.max(3, size * .13);
@@ -1591,6 +1697,13 @@ function renderGameResult(result) {
   resultLevel.textContent = `LV ${result.level}`;
   resultSeasonBest.textContent = result.seasonBest == null ? '—' : result.seasonBest.toLocaleString();
   resultRank.textContent = result.rank ? `#${result.rank}` : '—';
+  const hasSparkSettlement = Number.isFinite(result.sparkReward) && Number.isFinite(result.sparkBalance);
+  resultSparkRewardRow.hidden = !hasSparkSettlement;
+  resultSparkBalanceRow.hidden = !hasSparkSettlement;
+  if (hasSparkSettlement) {
+    resultSparkReward.textContent = `+${result.sparkReward.toLocaleString()}`;
+    resultSparkBalance.textContent = result.sparkBalance.toLocaleString();
+  }
 }
 
 async function submitCompletedRankedRun(resultRunId, finalScore, finalLevel) {
@@ -1910,7 +2023,13 @@ function closeHomeRanking() {
 }
 
 async function shareGame() {
-  const url = `${location.origin}${location.pathname}`;
+  const url = createShareUrl({
+    platform:nativePlatform,
+    androidStoreUrl,
+    iosStoreUrl,
+    origin:location.origin,
+    pathname:location.pathname,
+  });
   const result = currentGameResult || createGameResult({ranked:false, score, level});
   const data = {
     title: 'COLOR BOMB',
@@ -2013,7 +2132,13 @@ async function startSelectedMode(mode) {
 }
 
 startButton.addEventListener('click', () => startSelectedMode(GAME_MODES.PRACTICE));
-rankedStartButton.addEventListener('click', () => startSelectedMode(GAME_MODES.RANKED));
+rankedStartButton.addEventListener('click', () => {
+  if (!isNativeAndroid || Number(serverProfile?.rankedEnergy || 0) > 0) {
+    startSelectedMode(GAME_MODES.RANKED);
+    return;
+  }
+  openRewardDialog();
+});
 homeHelpButton.addEventListener('click', () => openTutorial(false));
 rankingButton.addEventListener('click', openHomeRanking);
 function openEconomyPanel(viewName, opener) {
@@ -2071,13 +2196,32 @@ socialConnectButton.addEventListener('click', async () => {
     profileStatus.textContent = error?.message || 'Google 계정을 연결하지 못했습니다.';
   }
 });
-themeOptions.addEventListener('click', event => {
-  const button = event.target.closest('[data-theme]');
-  if (!button) return;
-  profile.theme = button.dataset.theme;
-  try { localStorage.setItem('color-tetrix-profile-v1', JSON.stringify(profile)); } catch { /* private mode */ }
-  applyProfileTheme();
-  renderLocalProfile();
+deleteAccountButton.addEventListener('click', async () => {
+  const firstConfirmation = globalThis.confirm(
+    '계정과 서버 데이터를 영구 삭제할까요? 랭킹, 미션, SPARK, 구매 항목과 광고 보상 기록은 복구할 수 없습니다.',
+  );
+  if (!firstConfirmation) return;
+  deleteAccountButton.disabled = true;
+  profileStatus.textContent = '안전한 삭제 요청을 준비하는 중…';
+  try {
+    const {preparePlayerAccountDeletion, requestPlayerAccountDeletion} = await import('./profile-service.js');
+    const challenge = await preparePlayerAccountDeletion();
+    const finalConfirmation = globalThis.confirm(
+      '정말 삭제하시겠어요? 요청 후에는 복구할 수 없으며 게스트 계정으로 새로 시작합니다.',
+    );
+    if (!finalConfirmation) {
+      deleteAccountButton.disabled = false;
+      profileStatus.textContent = '계정 삭제를 취소했습니다.';
+      return;
+    }
+    profileStatus.textContent = '계정과 서버 데이터 삭제를 요청하는 중…';
+    await requestPlayerAccountDeletion(challenge);
+    clearLocalUserData();
+    location.reload();
+  } catch (error) {
+    deleteAccountButton.disabled = false;
+    profileStatus.textContent = error?.message || '계정과 데이터를 삭제하지 못했습니다.';
+  }
 });
 missionTabs.forEach(tab => tab.addEventListener('click', () => {
   selectedMissionPeriod = tab.dataset.missionTab;
@@ -2086,18 +2230,28 @@ missionTabs.forEach(tab => tab.addEventListener('click', () => {
 shopList.addEventListener('click', async event => {
   const button = event.target.closest('[data-shop-item]');
   if (!button) return;
+  const action = button.dataset.shopAction;
+  const itemId = button.dataset.shopItem;
   button.disabled = true;
-  labStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매하는 중…' : '상품을 장착하는 중…';
+  labStatus.textContent = action === 'purchase' ? '상품을 구매하는 중…' : '상품을 장착하는 중…';
   try {
     const api = await import('./profile-service.js');
-    const nextProfile = button.dataset.shopAction === 'purchase'
-      ? await api.purchasePlayerItem(button.dataset.shopItem)
-      : await api.equipPlayerItem(button.dataset.shopItem);
+    let nextProfile;
+    if (action === 'purchase') {
+      nextProfile = await api.purchasePlayerItem(itemId);
+    } else {
+      nextProfile = await api.equipPlayerItem(itemId);
+    }
     renderServerProfile(nextProfile);
-    labStatus.textContent = button.dataset.shopAction === 'purchase' ? '상품을 구매했습니다.' : '상품을 장착했습니다.';
+    labStatus.textContent = action === 'purchase' ? '구매하고 장착했습니다.' : '상품을 장착했습니다.';
+    showToast(labStatus.textContent, 'success');
   } catch (error) {
     button.disabled = false;
-    labStatus.textContent = error?.message || '상점 요청을 처리하지 못했습니다.';
+    const message = String(error?.message || '').includes('SPARK')
+      ? 'SPARK가 부족합니다. 미션을 완료해 SPARK를 모아보세요.'
+      : '상점 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    labStatus.textContent = message;
+    showToast(message, 'error');
   }
 });
 settingsForm.addEventListener('change', event => {
@@ -2111,41 +2265,74 @@ openControlsButton.addEventListener('click', () => {
   closeAppPanel(settingsPanel);
   openTutorial(false);
 });
-rewardedEnergyButton.addEventListener('click', async () => {
-  rewardedEnergyButton.disabled = true;
-  rewardedEnergyButton.textContent = '광고 준비 중…';
+function openRewardDialog() {
+  gameShell.inert = true;
+  rewardDialog.hidden = false;
+  rewardConfirmButton.focus({preventScroll:true});
+  if (!rewardedEnergyAdReady && !rewardedEnergyAdLoading && Date.now() >= nextRewardedPreloadAt) {
+    preloadRewardedEnergyAd();
+  }
+}
+
+function closeRewardDialog(force = false) {
+  if (rewardConfirmButton.disabled && !force) return;
+  clearRewardedEnergyRetry();
+  rewardedEnergyVerificationPending = false;
+  rewardDialog.hidden = true;
+  gameShell.inert = false;
+  rankedStartButton.focus({preventScroll:true});
+}
+
+async function watchRewardedEnergyAndStart() {
+  rewardConfirmButton.disabled = true;
+  rewardCancelButton.disabled = true;
+  rewardConfirmButton.textContent = rewardedEnergyAdReady ? '광고 여는 중…' : '광고 불러오는 중…';
   try {
-    const {showRewardedEnergyAd, getRewardedEnergyStatus} = await import('./rewarded-energy.js');
+    const {showRewardedEnergyAd} = await import('./rewarded-energy.js');
     const request = await showRewardedEnergyAd();
-    rewardedEnergyPendingUntil = Number(request.expiresAt) || Date.now() + 10 * 60_000;
-    rewardedEnergyButton.textContent = '보상 확인 중…';
-    for (let attempt = 0; currentServerTime() < rewardedEnergyPendingUntil; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, attempt < 6 ? 3000 : 15_000));
-      const reward = await getRewardedEnergyStatus(request.requestId);
-      if (Number.isFinite(reward.serverNow)) serverClockOffsetMs = reward.serverNow - Date.now();
-      if (reward.status !== 'pending') {
-        rewardedEnergyPendingUntil = 0;
-        await refreshEconomyProfile();
-        break;
-      }
+    clearRewardedEnergyRetry();
+    rewardedEnergyAdReady = false;
+    if (request.profile) renderServerProfile(request.profile);
+    else await refreshEconomyProfile();
+    const availableEnergy = Number(serverProfile?.rankedEnergy || 0);
+    if (availableEnergy <= 0) {
+      showToast('에너지를 충전하지 못했습니다. 다시 시도해 주세요.', 'error');
+      return;
     }
+    showToast(request.granted === false ? '사용할 수 있는 에너지가 확인됐습니다.' : '에너지 1개가 충전되었습니다.', 'success');
+    closeRewardDialog(true);
+    await startSelectedMode(GAME_MODES.RANKED);
   } catch (error) {
-    overlayCopy.textContent = error?.message || '광고를 불러오지 못했습니다.';
+    clearRewardedEnergyRetry();
+    showToast(friendlyAdError(error), 'error');
   } finally {
+    rewardConfirmButton.disabled = false;
+    rewardCancelButton.disabled = false;
+    rewardConfirmButton.innerHTML = '광고 보고 충전 <span>⚡</span>';
     renderEnergy();
   }
-});
+}
+
+rewardConfirmButton.addEventListener('click', watchRewardedEnergyAndStart);
+rewardCancelButton.addEventListener('click', () => closeRewardDialog());
 privacyOptionsButton.addEventListener('click', async () => {
   try {
     const {showPrivacyOptions} = await import('./rewarded-energy.js');
     await showPrivacyOptions();
   } catch (error) {
-    profileStatus.textContent = error?.message || '개인정보 선택 화면을 열지 못했습니다.';
+    const message = '광고 개인정보 선택 화면을 열지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    profileStatus.textContent = message;
+    showToast(message, 'error');
   }
 });
 resetLocalDataButton.addEventListener('click', () => {
   const confirmed = globalThis.confirm('기기에 저장된 연습 기록과 설정을 초기화할까요? 서버 랭킹 기록은 삭제되지 않습니다.');
   if (!confirmed) return;
+  clearLocalUserData();
+  location.reload();
+});
+
+function clearLocalUserData() {
   for (const key of [
     'color-tetrix-profile-v1',
     'color-bomb-settings-v1',
@@ -2155,11 +2342,11 @@ resetLocalDataButton.addEventListener('click', () => {
     'color-bomb-run-snapshot-v1',
     'color-bomb-pending-best-score-v1',
     'color-bomb-pending-ranked-run-v1',
+    'color-bomb:rewarded-energy-pending',
   ]) {
     try { localStorage.removeItem(key); } catch { /* private mode */ }
   }
-  location.reload();
-});
+}
 reducedMotionMedia.addEventListener?.('change', () => {
   if (settings.reducedMotion === 'system') {
     prefersReducedMotion = shouldReduceMotion();
@@ -2183,6 +2370,10 @@ tutorialDismiss.addEventListener('click',()=>{ unlockAudioSession(); closeTutori
 gameShell.addEventListener('contextmenu',e=>e.preventDefault());
 installCanvasInputGuards(canvas);
 window.addEventListener('keydown',e=>{
+  if (!rewardDialog.hidden) {
+    if (e.key === 'Escape') { e.preventDefault(); closeRewardDialog(); }
+    return;
+  }
   if (!resumeDialog.hidden) return;
   const openPanel = [profilePanel, labPanel, settingsPanel].find(panel => !panel.hidden);
   if (openPanel) {
@@ -2209,6 +2400,7 @@ function requestResumeAfterInterruption() {
   resumeDialog.querySelector('#resumeTitle').innerHTML = '잠시<br />멈췄습니다';
   resumeDialog.querySelector('.resume-card > p:not(.overlay-kicker)').textContent =
     '준비되면 이어서 플레이하세요.';
+  resumeDialogMode = 'interruption';
   resumeDialog.hidden = false;
   resumeButton.focus({ preventScroll: true });
 }
@@ -2217,12 +2409,64 @@ function continueAfterInterruption() {
   if (!autoPaused) return;
   unlockAudioSession();
   resumeDialog.hidden = true;
+  resumeDialogMode = null;
   gameShell.inert = false;
   autoPaused = false;
   paused = false;
   lastTime = performance.now();
   startLoop();
   startMusic();
+}
+
+async function handleAndroidBackButton() {
+  if (!rewardDialog.hidden) {
+    lastAndroidBackAt = 0;
+    closeRewardDialog();
+    return;
+  }
+  if (!resumeDialog.hidden) {
+    lastAndroidBackAt = 0;
+    if (resumeDialogMode === 'restore') discardSavedRun();
+    else continueAfterInterruption();
+    return;
+  }
+
+  const openPanel = [profilePanel, labPanel, settingsPanel].find(panel => !panel.hidden);
+  if (openPanel) {
+    lastAndroidBackAt = 0;
+    closeAppPanel(openPanel);
+    return;
+  }
+  if (!tutorial.hidden) {
+    lastAndroidBackAt = 0;
+    closeTutorial();
+    return;
+  }
+  if (!homeRanking.hidden) {
+    lastAndroidBackAt = 0;
+    closeHomeRanking();
+    rankingButton.focus({preventScroll:true});
+    return;
+  }
+  if (running) {
+    lastAndroidBackAt = 0;
+    pauseForInterruption();
+    requestResumeAfterInterruption();
+    return;
+  }
+  if (overlay.classList.contains('game-over')) {
+    lastAndroidBackAt = 0;
+    returnHome();
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastAndroidBackAt <= 2000) {
+    await App.exitApp();
+    return;
+  }
+  lastAndroidBackAt = now;
+  showToast('종료하려면 뒤로가기를 한 번 더 누르세요.');
 }
 
 function discardSavedRun() {
@@ -2235,6 +2479,7 @@ function discardSavedRun() {
   paused = false;
   autoPaused = false;
   resumeDialog.hidden = true;
+  resumeDialogMode = null;
   gameShell.inert = false;
   document.body.classList.remove('playing');
   overlay.classList.add('visible');
@@ -2369,3 +2614,10 @@ if (!e2eMode) {
 const savedRun = readRunSnapshot();
 if (savedRun) restoreRun(savedRun);
 setupPwa();
+if (isNativeAndroid) {
+  void App.addListener('backButton', () => { void handleAndroidBackButton(); })
+    .then(handle => { androidBackListenerHandle = handle; });
+}
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => { void androidBackListenerHandle?.remove(); });
+}

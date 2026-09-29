@@ -82,6 +82,8 @@
                 <div><dt>도달 레벨</dt><dd id="resultLevel">—</dd></div>
                 <div><dt>시즌 기록</dt><dd id="resultSeasonBest">—</dd></div>
                 <div><dt>현재 순위</dt><dd id="resultRank">—</dd></div>
+                <div class="result-spark" id="resultSparkRewardRow" hidden><dt>이번 SPARK</dt><dd id="resultSparkReward">+0</dd></div>
+                <div class="result-spark" id="resultSparkBalanceRow" hidden><dt>보유 SPARK</dt><dd id="resultSparkBalance">0</dd></div>
               </dl>
             </section>
             <section class="home-ranking" id="homeRanking" aria-labelledby="homeRankingTitle" hidden>
@@ -99,7 +101,6 @@
             <section class="ranked-energy-panel" id="rankedEnergyPanel" aria-live="polite">
               <p><span>RANKED ENERGY</span><strong id="rankedEnergyValue">⚡ — / 3</strong></p>
               <small id="rankedEnergyTimer">서버에서 에너지를 확인하고 있어요.</small>
-              <button id="rewardedEnergyButton" type="button" hidden>광고 보고 +1</button>
             </section>
             <section class="season-result-nudge" id="seasonResultNudge" aria-labelledby="seasonResultNudgeTitle" hidden>
               <div>
@@ -180,6 +181,11 @@
             <div><dt>체인 파워</dt><dd data-profile-stat="bestChainPower">0</dd></div>
           </dl>
         </section>
+        <section class="profile-section account-delete-section" aria-labelledby="accountDeleteTitle">
+          <div class="section-heading"><p>ACCOUNT CONTROL</p><h3 id="accountDeleteTitle">계정 및 데이터</h3></div>
+          <p>Firebase 계정과 연결된 랭킹, 미션, 재화, 상점 및 광고 보상 기록을 영구 삭제합니다.</p>
+          <button class="account-delete-button" id="deleteAccountButton" type="button">계정 및 데이터 삭제 <span>×</span></button>
+        </section>
         <p class="panel-status" id="profileStatus" role="status"></p>
       </div>
     </section>
@@ -201,12 +207,12 @@
           </section>
         </div>
         <div class="lab-view" data-lab-view="custom" hidden>
-          <section class="profile-section" aria-labelledby="themeTitle">
-            <div class="section-heading"><p>BOARD SKIN</p><h3 id="themeTitle">테마</h3></div>
-            <div class="theme-options" id="themeOptions"></div>
-          </section>
           <section class="profile-section economy-section" aria-labelledby="shopTitle">
-            <div class="section-heading"><div><p>CUSTOM LAB</p><h3 id="shopTitle">커스터마이징 상점</h3></div></div>
+            <div class="shop-heading">
+              <div><p>CUSTOM LAB</p><h3 id="shopTitle">커스터마이징 상점</h3></div>
+              <strong class="spark-balance shop-spark-balance" id="shopSparkBalance">0 SPARK</strong>
+            </div>
+            <p class="shop-guidance">테마와 스킨을 SPARK로 해금하고 바로 장착하세요.</p>
             <div class="shop-list" id="shopList"></div>
           </section>
         </div>
@@ -294,6 +300,18 @@
         <small>이 안내는 처음 한 번만 표시됩니다. 홈의 게임 방법에서 다시 볼 수 있습니다.</small>
       </div>
     </section>
+    <section class="reward-dialog" id="rewardDialog" role="dialog" aria-modal="true" aria-labelledby="rewardDialogTitle" aria-describedby="rewardDialogCopy" hidden>
+      <div class="reward-card">
+        <p class="overlay-kicker">ENERGY EMPTY</p>
+        <div class="reward-energy-mark" aria-hidden="true">◇ <span>→</span> ◆</div>
+        <h2 id="rewardDialogTitle">광고 보고<br />도전할까요?</h2>
+        <p id="rewardDialogCopy">광고 1개를 끝까지 보면 에너지 1개가 충전되고 바로 랭킹 게임을 시작합니다.</p>
+        <div class="reward-actions">
+          <button id="rewardConfirmButton" type="button">광고 보고 충전 <span>⚡</span></button>
+          <button id="rewardCancelButton" type="button">취소</button>
+        </div>
+      </div>
+    </section>
     <section class="resume-dialog" id="resumeDialog" role="dialog" aria-modal="true" aria-labelledby="resumeTitle" hidden>
       <div class="resume-card">
         <p class="overlay-kicker">GAME PAUSED</p>
@@ -305,6 +323,7 @@
         </div>
       </div>
     </section>
+    <div class="app-toast" id="appToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

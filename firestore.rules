@@ -18,6 +18,10 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function accountIsActive(userId) {
+      return !exists(/databases/$(database)/documents/account_deletion_requests/$(userId));
+    }
+
     match /best_scores/{userId} {
       allow get: if request.auth != null;
       allow list: if request.auth != null
@@ -25,11 +29,13 @@ service cloud.firestore {
         && request.query.limit <= 50;
       allow create: if request.auth != null
         && request.auth.uid == userId
+        && accountIsActive(userId)
         && validScore(request.resource.data)
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
       allow update: if request.auth != null
         && request.auth.uid == userId
+        && accountIsActive(userId)
         && validScore(request.resource.data)
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt == request.time
@@ -74,8 +80,18 @@ service cloud.firestore {
     }
 
     match /player_profiles/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null
+        && request.auth.uid == userId
+        && accountIsActive(userId);
       allow write: if false;
+    }
+
+    match /account_deletion_requests/{userId} {
+      allow read, write: if false;
+    }
+
+    match /account_deletion_challenges/{userId} {
+      allow read, write: if false;
     }
 
     match /nickname_reservations/{reservationId} {

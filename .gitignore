@@ -7,6 +7,11 @@ dist/
 outputs/
 playwright-report/
 test-results/
+.playwright-mcp/
+store-assets/*-raw.png
+store-assets/cdp-test.png
+store-assets/phone-02-missions.png
+store-assets/phone-04-shop.png
 .env
 .env.local
 .env.*.local

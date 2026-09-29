@@ -3,14 +3,34 @@ import assert from 'node:assert/strict';
 import {
   DAILY_MISSIONS,
   ENERGY_REFILL_MS,
+  SHOP_CATALOG,
   WEEKLY_MISSIONS,
   applyMissionRun,
   consumeEnergy,
+  defaultEconomy,
   emptyMissionProgress,
   grantEnergy,
   refillEnergy,
+  scoreToSpark,
   serializeMissions,
 } from '../economy-core.js';
+
+test('검증 점수는 게임당 25·하루 75 SPARK 한도 안에서 환산한다', () => {
+  assert.equal(scoreToSpark(999, 0), 0);
+  assert.equal(scoreToSpark(12_999, 0), 12);
+  assert.equal(scoreToSpark(99_999, 0), 25);
+  assert.equal(scoreToSpark(20_000, 70), 5);
+  assert.equal(scoreToSpark(20_000, 75), 0);
+});
+
+test('기본 테마는 무료로 보유하고 추가 테마와 스킨은 SPARK 상품이다', () => {
+  const economy = defaultEconomy();
+  assert.deepEqual(economy.ownedItems, ['default-theme']);
+  assert.equal(economy.equippedItems.appTheme, 'default-theme');
+  assert.equal(SHOP_CATALOG.find(item => item.id === 'default-theme').price, 0);
+  assert.equal(SHOP_CATALOG.filter(item => item.slot === 'appTheme' && item.price > 0).length >= 2, true);
+  assert.equal(SHOP_CATALOG.filter(item => item.slot === 'blockSkin' && item.price > 0).length >= 3, true);
+});
 
 test('에너지는 30분마다 충전되고 최대 3개를 넘지 않는다', () => {
   const now = Date.UTC(2026, 7, 26);

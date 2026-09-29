@@ -2,18 +2,39 @@ import {
   DAILY_MISSIONS,
   ENERGY_MAX,
   ENERGY_REFILL_MS,
+  SCORE_PER_SPARK,
+  SCORE_SPARK_DAILY_MAX,
+  SCORE_SPARK_PER_RUN_MAX,
   SHOP_CATALOG,
   WEEKLY_MISSIONS,
 } from './shared/economy-contract.js';
 
-export {DAILY_MISSIONS, ENERGY_MAX, ENERGY_REFILL_MS, SHOP_CATALOG, WEEKLY_MISSIONS};
+export {
+  DAILY_MISSIONS,
+  ENERGY_MAX,
+  ENERGY_REFILL_MS,
+  SCORE_PER_SPARK,
+  SCORE_SPARK_DAILY_MAX,
+  SCORE_SPARK_PER_RUN_MAX,
+  SHOP_CATALOG,
+  WEEKLY_MISSIONS,
+};
+
+export function scoreToSpark(score, earnedToday = 0) {
+  const scoreReward = Math.min(
+    SCORE_SPARK_PER_RUN_MAX,
+    Math.floor(Math.max(0, Number(score) || 0) / SCORE_PER_SPARK),
+  );
+  const dailyRemaining = Math.max(0, SCORE_SPARK_DAILY_MAX - Math.max(0, Math.floor(Number(earnedToday) || 0)));
+  return Math.min(scoreReward, dailyRemaining);
+}
 
 export function defaultEconomy() {
   return {
     rankedEnergy:ENERGY_MAX,
     sparkBalance:0,
-    ownedItems:[],
-    equippedItems:{},
+    ownedItems:['default-theme'],
+    equippedItems:{appTheme:'default-theme'},
   };
 }
 

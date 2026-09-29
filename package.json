@@ -1,12 +1,13 @@
 {
   "name": "color-bomb",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.2",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
+    "postinstall": "node scripts/patch-capacitor-admob.mjs",
     "dev": "vite --host 0.0.0.0",
     "test": "node --test",
     "test:e2e": "playwright test",
@@ -23,18 +24,19 @@
     "cap:sync": "npm run build && cap sync"
   },
   "devDependencies": {
-    "@capacitor/android": "^7.6.8",
-    "@capacitor/cli": "^7.6.8",
-    "@capacitor/core": "^7.6.8",
-    "@capacitor/ios": "^7.6.8",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
     "@firebase/rules-unit-testing": "^5.0.1",
     "@playwright/test": "^1.62.0",
     "vite": "^7.0.0"
   },
   "dependencies": {
-    "@capacitor-firebase/app-check": "^7.5.0",
-    "@capacitor-firebase/authentication": "^7.5.0",
-    "@capacitor-community/admob": "^7.2.0",
+    "@capacitor-community/admob": "^8.1.0",
+    "@capacitor-firebase/app-check": "^8.5.1",
+    "@capacitor-firebase/authentication": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
     "@sentry/browser": "^10.68.0",
     "firebase": "^12.16.0"
   }
