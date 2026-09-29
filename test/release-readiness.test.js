@@ -7,9 +7,9 @@ const androidBuild = readFileSync(new URL('../android/app/build.gradle', import.
 const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 
 test('정식 버전과 Android 버전 메타데이터가 일치한다', () => {
-  assert.equal(packageJson.version, '1.0.1');
-  assert.match(androidBuild, /versionCode 16\b/);
-  assert.match(androidBuild, /versionName "1\.0\.1"/);
+  assert.equal(packageJson.version, '1.0.2');
+  assert.match(androidBuild, /versionCode 17\b/);
+  assert.match(androidBuild, /versionName "1\.0\.2"/);
   assert.match(mainSource, /buildVersion\.textContent = `VERSION \$\{__APP_VERSION__\}`/);
   assert.doesNotMatch(mainSource, /buildVersion\.textContent = `[^`]*BUILD/);
 });
@@ -44,6 +44,14 @@ test('네이티브와 PWA는 회전을 허용하고 릴리스 도구 버전을 �
 test('AdMob 앱 인증용 app-ads.txt가 공식 게시자 정보를 노출한다', () => {
   const appAds = readFileSync(new URL('../public/app-ads.txt', import.meta.url), 'utf8').trim();
   assert.equal(appAds, 'google.com, pub-8700977029674142, DIRECT, f08c47fec0942fa0');
+});
+
+test('Android 앱과 보상형 광고는 인증된 AdMob 앱 설정을 사용한다', () => {
+  const gradleProperties = readFileSync(new URL('../android/gradle.properties', import.meta.url), 'utf8');
+  const productionEnv = readFileSync(new URL('../.env.production', import.meta.url), 'utf8');
+
+  assert.match(gradleProperties, /ADMOB_APP_ID=ca-app-pub-8700977029674142~9564216514/);
+  assert.match(productionEnv, /VITE_ADMOB_REWARDED_AD_UNIT_ID=ca-app-pub-8700977029674142\/1824331449/);
 });
 
 test('개인정보처리방침은 광고·오류 분석과 계정 삭제 경로를 안내한다', () => {

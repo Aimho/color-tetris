@@ -31,8 +31,8 @@ android {
         applicationId "com.aimho.games.colorbomb"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 16
-        versionName "1.0.1"
+        versionCode 17
+        versionName "1.0.2"
         manifestPlaceholders = [admobAppId: admobAppId]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
