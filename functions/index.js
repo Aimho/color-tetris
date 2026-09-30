@@ -34,6 +34,7 @@ import {
   WEEKLY_MISSIONS,
   applyMissionRun,
   catalogItem,
+  claimAttendance,
   consumeEnergy,
   defaultEconomy,
   emptyMissionProgress,
@@ -42,6 +43,7 @@ import {
   refillEnergy,
   scoreToSpark,
   serializeMissions,
+  serializeAttendance,
 } from './economy-core.js';
 
 const ADMOB_KEYS_URL = 'https://www.gstatic.com/admob/reward/verifier-keys.json';
@@ -411,6 +413,7 @@ export const processPlayerAccountDeletion = onDocumentCreated({
   for (const query of queries) await deleteQueryDocuments(query);
   const finalBatch = db.batch();
   finalBatch.delete(profileRef);
+  finalBatch.delete(db.doc(`attendance_progress/${uid}`));
   finalBatch.delete(db.doc(`best_scores/${uid}`));
   finalBatch.delete(db.doc(`ranked_energy/${uid}`));
   finalBatch.delete(db.doc(`rewarded_energy_requests/${uid}`));
@@ -428,6 +431,31 @@ export const processPlayerAccountDeletion = onDocumentCreated({
     cleanupAt:Timestamp.fromMillis(Date.now() + 90 * 24 * 60 * 60 * 1000),
   }, {merge:true});
   logger.info('Player account deleted');
+});
+
+export const claimDailyAttendance = onCall(OPTIONS, async request => {
+  const uid = await requireActiveUid(request);
+  await getOrCreateProfile(uid);
+  const now = Timestamp.now();
+  const day = getKstDay(now.toDate());
+  const profileRef = db.doc(`player_profiles/${uid}`);
+  const attendanceRef = db.doc(`attendance_progress/${uid}`);
+  const reward = await db.runTransaction(async transaction => {
+    await assertAccountActive(transaction, uid);
+    const [profile, attendance] = await Promise.all([
+      transaction.get(profileRef), transaction.get(attendanceRef),
+    ]);
+    const claim = claimAttendance(attendance.data() || {}, day);
+    if (!claim.claimed) return 0;
+    transaction.set(attendanceRef, {uid, streak:claim.streak, lastClaimDay:day, updatedAt:now});
+    transaction.update(profileRef, {
+      sparkBalance:Math.max(0, Number(profile.data().sparkBalance) || 0) + claim.reward,
+      updatedAt:now,
+    });
+    return claim.reward;
+  });
+  const economy = await refreshPlayerEconomy(uid, now);
+  return {...serializePlayerProfile(economy.profile, economy), attendanceReward:reward};
 });
 
 export const purchaseShopItem = onCall(OPTIONS, async request => {
@@ -862,6 +890,7 @@ function serializePlayerProfile(profile, economy = null) {
     shopCatalog:SHOP_CATALOG,
     dailyMissions:economy?.dailyMissions || [],
     weeklyMissions:economy?.weeklyMissions || [],
+    attendance:economy?.attendance || null,
   };
 }
 
@@ -873,8 +902,9 @@ async function refreshPlayerEconomy(uid, now = Timestamp.now()) {
   const weeklyRef = db.doc(`mission_progress/${uid}_weekly_${week}`);
   const result = await db.runTransaction(async transaction => {
     await assertAccountActive(transaction, uid);
-    const [profileSnapshot, dailySnapshot, weeklySnapshot] = await Promise.all([
+    const [profileSnapshot, dailySnapshot, weeklySnapshot, attendanceSnapshot] = await Promise.all([
       transaction.get(profileRef), transaction.get(dailyRef), transaction.get(weeklyRef),
+      transaction.get(db.doc(`attendance_progress/${uid}`)),
     ]);
     const profile = profileSnapshot.data();
     const energy = refillEnergy(energyState(profile, now.toMillis()), now.toMillis());
@@ -883,6 +913,7 @@ async function refreshPlayerEconomy(uid, now = Timestamp.now()) {
       profile:{...profile, rankedEnergy:energy.energy, energyUpdatedAt:Timestamp.fromMillis(energy.updatedAtMs)},
       energy:energy.energy,
       nextRefillAtMs:energy.nextRefillAtMs,
+      attendance:serializeAttendance(attendanceSnapshot.data() || {}, day),
       dailyMissions:serializeMissions(
         dailySnapshot.exists ? dailySnapshot.data() : emptyMissionProgress(day, 'daily'), DAILY_MISSIONS,
       ),

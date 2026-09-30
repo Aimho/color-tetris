@@ -1,5 +1,19 @@
 import { expect, test } from '@playwright/test';
 
+test('출석 레일은 375px 및 넓은 화면에서 일곱 보상을 읽을 수 있다', async ({page}, testInfo) => {
+  for (const width of [375,1280]) {
+    await page.setViewportSize({width,height:900});
+    await page.emulateMedia({reducedMotion:'reduce'});
+    await page.goto('/');
+    await page.locator('#missionButton').click();
+    await expect(page.locator('#attendanceTrack li')).toHaveCount(7);
+    await expect(page.locator('#attendanceClaimButton')).toBeDisabled();
+    const bounds = await page.locator('#attendanceTrack').boundingBox();
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await page.screenshot({path:testInfo.outputPath(`attendance-${width}.png`)});
+  }
+});
+
 function collectRuntimeErrors(page) {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));

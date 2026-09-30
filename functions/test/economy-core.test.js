@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ATTENDANCE_REWARDS,
   DAILY_MISSIONS,
   ENERGY_REFILL_MS,
   SHOP_CATALOG,
   WEEKLY_MISSIONS,
   applyMissionRun,
+  claimAttendance,
   consumeEnergy,
   defaultEconomy,
   emptyMissionProgress,
@@ -14,6 +16,37 @@ import {
   scoreToSpark,
   serializeMissions,
 } from '../economy-core.js';
+
+test('7일 출석은 서버 날짜 기준으로 하루 한 번 보상한다', () => {
+  const first = claimAttendance({}, '2026-09-29');
+  assert.equal(first.streak, 1);
+  assert.equal(first.reward, ATTENDANCE_REWARDS[0]);
+  assert.equal(first.claimed, true);
+
+  const duplicate = claimAttendance(first, '2026-09-29');
+  assert.equal(duplicate.claimed, false);
+  assert.equal(duplicate.reward, 0);
+
+  const second = claimAttendance(first, '2026-09-30');
+  assert.equal(second.streak, 2);
+  assert.equal(second.reward, ATTENDANCE_REWARDS[1]);
+});
+
+test('출석을 하루 놓치거나 7일을 완료하면 새 주기를 시작한다', () => {
+  const missed = claimAttendance({streak:4, lastClaimDay:'2026-09-27'}, '2026-09-29');
+  assert.equal(missed.streak, 1);
+
+  const cycled = claimAttendance({streak:7, lastClaimDay:'2026-09-28'}, '2026-09-29');
+  assert.equal(cycled.streak, 1);
+  assert.equal(cycled.reward, ATTENDANCE_REWARDS[0]);
+});
+
+test('자정 이전의 지연 요청은 다음 날 보상을 되돌리거나 중복 지급하지 않는다', () => {
+  const claim = claimAttendance({streak:2,lastClaimDay:'2026-10-01'}, '2026-09-30');
+  assert.equal(claim.claimed,false);
+  assert.equal(claim.reward,0);
+  assert.equal(claim.lastClaimDay,'2026-10-01');
+});
 
 test('검증 점수는 게임당 25·하루 75 SPARK 한도 안에서 환산한다', () => {
   assert.equal(scoreToSpark(999, 0), 0);

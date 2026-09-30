@@ -13,6 +13,14 @@ const updateNickname = httpsCallable(functions, 'updatePlayerNickname', {
 });
 const purchaseItem = httpsCallable(functions, 'purchaseShopItem', {limitedUseAppCheckTokens:true});
 const equipItem = httpsCallable(functions, 'equipShopItem', {limitedUseAppCheckTokens:true});
+const claimAttendance = httpsCallable(functions, 'claimDailyAttendance', {limitedUseAppCheckTokens:true});
+
+export async function claimPlayerAttendance() {
+  if (!appCheck) throw new Error('출석 서버 보호 설정이 필요합니다.');
+  await ensureAuthUser();
+  const result = await claimAttendance();
+  return enrichProfile(result.data);
+}
 const prepareAccountDeletion = httpsCallable(functions, 'preparePlayerAccountDeletion', {limitedUseAppCheckTokens:true});
 const requestAccountDeletion = httpsCallable(functions, 'requestPlayerAccountDeletion', {limitedUseAppCheckTokens:true});
 

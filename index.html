@@ -199,6 +199,11 @@
         <div class="lab-view" data-lab-view="missions">
           <section class="profile-section economy-section" aria-labelledby="missionTitle">
           <div class="economy-balance-row"><strong id="missionTitle">진행 현황</strong><strong class="spark-balance" id="sparkBalance">0 SPARK</strong></div>
+          <section class="attendance-strip" aria-labelledby="attendanceTitle">
+            <div class="attendance-heading"><div><h3 id="attendanceTitle">7일 출석</h3><p>매일 모으는 SPARK · 한국 시간 자정 기준</p></div><button id="attendanceClaimButton" type="button" disabled>연결 중</button></div>
+            <ol id="attendanceTrack" class="attendance-track" aria-label="7일 출석 보상"></ol>
+            <p class="attendance-note">하루를 쉬면 1일 차부터 다시 시작해요.</p>
+          </section>
           <div class="mission-tabs" role="tablist" aria-label="미션 기간">
             <button type="button" role="tab" data-mission-tab="daily" aria-selected="true">DAILY</button>
             <button type="button" role="tab" data-mission-tab="weekly" aria-selected="false">WEEKLY</button>
