@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@capacitor-community/admob": "^8.1.0",
+    "@capacitor-firebase/analytics": "^8.5.2",
     "@capacitor-firebase/app-check": "^8.5.1",
     "@capacitor-firebase/authentication": "^8.5.1",
     "@capacitor/app": "^8.1.1",

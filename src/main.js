@@ -1,4 +1,6 @@
 import './style.css';
+import { trackEvent } from './analytics.js';
+import { createShareCardFile } from './share-card.js';
 import { App } from '@capacitor/app';
 import { actionForKey, canStartPointerGesture, dragStepTarget, installCanvasInputGuards } from './input.js';
 import { findColorGroups, groupSizesByCell } from './board.js';
@@ -394,6 +396,7 @@ function scheduleRewardedEnergyRetry(request) {
 }
 
 function renderMissions() {
+  renderAttendance();
   const missions = selectedMissionPeriod === 'daily'
     ? serverProfile?.dailyMissions || []
     : serverProfile?.weeklyMissions || [];
@@ -417,6 +420,44 @@ function renderMissions() {
   }));
   if (!missions.length) missionList.textContent = '미션 서버에 연결하면 진행도를 확인할 수 있습니다.';
 }
+
+let attendanceClaiming = false;
+function renderAttendance() {
+  const attendance = serverProfile?.attendance;
+  const button = document.querySelector('#attendanceClaimButton');
+  button.disabled = !attendance || attendance.claimedToday || attendanceClaiming;
+  button.textContent = attendanceClaiming ? '받는 중…' : attendance?.claimedToday ? '오늘 출석 완료' : attendance ? '출석 받기' : '연결 대기';
+  document.querySelector('#attendanceTrack').replaceChildren(...(attendance?.rewards || [10,15,20,25,30,40,75]).map((reward, index) => {
+    const node = document.createElement('li');
+    const completed = attendance?.claimedToday ? index < attendance.streak : index < (attendance?.nextDay || 1) - 1;
+    node.className = completed ? 'claimed' : !attendance?.claimedToday && index === (attendance?.nextDay || 1) - 1 ? 'current' : '';
+    const day = document.createElement('span');
+    day.textContent = `${index + 1}일`;
+    const amount = document.createElement('strong');
+    amount.textContent = `+${reward}`;
+    node.setAttribute('aria-label', `${index + 1}일 차 ${reward} SPARK${completed ? ' 수령 완료' : ''}`);
+    node.append(day, amount);
+    return node;
+  }));
+}
+
+document.querySelector('#attendanceClaimButton').addEventListener('click', async () => {
+  if (attendanceClaiming || !serverProfile?.attendance || serverProfile.attendance.claimedToday) return;
+  attendanceClaiming = true;
+  renderAttendance();
+  try {
+    const {claimPlayerAttendance} = await import('./profile-service.js');
+    const nextProfile = await claimPlayerAttendance();
+    if (nextProfile.attendanceReward) trackEvent('attendance_claim', {reward:nextProfile.attendanceReward});
+    renderServerProfile(nextProfile);
+    showToast(nextProfile.attendanceReward ? `${nextProfile.attendanceReward} SPARK를 받았어요!` : '오늘 출석 보상을 이미 받았어요.', 'success');
+  } catch {
+    showToast('출석을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.', 'error');
+  } finally {
+    attendanceClaiming = false;
+    renderAttendance();
+  }
+});
 
 function renderShop() {
   const owned = new Set(serverProfile?.ownedItems || []);
@@ -550,6 +591,7 @@ async function loadProfilePanel(statusElement = profileStatus) {
 }
 
 function openAppPanel(panel, opener) {
+  trackEvent('screen_open', {screen:panel.id});
   closeHomeRanking();
   panel.dataset.opener = opener?.id || '';
   gameShell.inert = true;
@@ -655,6 +697,7 @@ function spawn() {
 }
 
 function reset(mode = gameMode, session = pendingRankedSession) {
+  trackEvent('game_start', {mode});
   stopLoop();
   setRankedLoading(false);
   runId++;
@@ -1617,6 +1660,7 @@ function rememberTutorial() {
 }
 
 function openTutorial(startsGame = false) {
+  trackEvent('tutorial_open');
   tutorialStartsGame = startsGame;
   tutorialOpener = document.activeElement;
   if (running) { paused = true; stopLoop(); stopMusic(); }
@@ -1653,6 +1697,7 @@ function showGestureHint(message) {
 }
 
 function endGame() {
+  trackEvent('game_finish', {mode:gameMode, level, score_bucket:Math.floor(score / 1000)});
   running=false; resolving=false;
   stopLoop();
   clearRunSnapshot();
@@ -1689,7 +1734,14 @@ function endGame() {
   tone(90,.22);
 }
 
+let preparedShareCard = null;
+let shareCardGeneration = 0;
 function renderGameResult(result) {
+  const generation = ++shareCardGeneration;
+  preparedShareCard = null;
+  createShareCardFile(result).then(file => {
+    if (generation === shareCardGeneration) preparedShareCard = file;
+  });
   overlayTitle.textContent = result.title;
   overlayCopy.textContent = result.detail;
   scoreStatus.textContent = result.kind === 'pending' ? result.detail : '';
@@ -2011,6 +2063,7 @@ async function refreshLeaderboard(targetList = homeLeaderboardList) {
 }
 
 function openHomeRanking() {
+  trackEvent('screen_open', {screen:'ranking'});
   overlay.classList.add('ranking-view');
   homeRanking.hidden = false;
   rankingCloseButton.focus();
@@ -2023,6 +2076,7 @@ function closeHomeRanking() {
 }
 
 async function shareGame() {
+  trackEvent('share_clicked');
   const url = createShareUrl({
     platform:nativePlatform,
     androidStoreUrl,
@@ -2030,26 +2084,34 @@ async function shareGame() {
     origin:location.origin,
     pathname:location.pathname,
   });
+  const trackedUrl = new URL(url);
+  trackedUrl.searchParams.set('utm_source','game_share');
+  trackedUrl.searchParams.set('utm_medium','organic');
+  trackedUrl.searchParams.set('utm_campaign','ranking_challenge');
   const result = currentGameResult || createGameResult({ranked:false, score, level});
   const data = {
     title: 'COLOR BOMB',
     text: createShareText(result, runPlatform === 'app' ? '앱' : '웹'),
-    url,
+    url:trackedUrl.href,
   };
   try {
     if (navigator.share) {
+      const file = preparedShareCard;
+      if (file && navigator.canShare?.({files:[file]})) data.files = [file];
       await navigator.share(data);
+      trackEvent('share_completed', {method:data.files ? 'image' : 'text'});
       return;
     }
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(`${data.text}\n${data.url}`);
+    trackEvent('share_completed', {method:'clipboard'});
     showShareCopied();
   } catch (error) {
     if (error?.name === 'AbortError') return;
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(`${data.text}\n${data.url}`);
       showShareCopied();
     } catch {
-      scoreStatus.textContent = `공유 링크: ${url}`;
+      scoreStatus.textContent = `공유 링크: ${data.url}`;
     }
   }
 }
@@ -2239,8 +2301,10 @@ shopList.addEventListener('click', async event => {
     let nextProfile;
     if (action === 'purchase') {
       nextProfile = await api.purchasePlayerItem(itemId);
+      trackEvent('shop_purchase', {item_id:itemId});
     } else {
       nextProfile = await api.equipPlayerItem(itemId);
+      trackEvent('shop_equip', {item_id:itemId});
     }
     renderServerProfile(nextProfile);
     labStatus.textContent = action === 'purchase' ? '구매하고 장착했습니다.' : '상품을 장착했습니다.';
@@ -2284,12 +2348,14 @@ function closeRewardDialog(force = false) {
 }
 
 async function watchRewardedEnergyAndStart() {
+  trackEvent('reward_ad_request');
   rewardConfirmButton.disabled = true;
   rewardCancelButton.disabled = true;
   rewardConfirmButton.textContent = rewardedEnergyAdReady ? '광고 여는 중…' : '광고 불러오는 중…';
   try {
     const {showRewardedEnergyAd} = await import('./rewarded-energy.js');
     const request = await showRewardedEnergyAd();
+    if (request.granted !== false) trackEvent('reward_ad_complete');
     clearRewardedEnergyRetry();
     rewardedEnergyAdReady = false;
     if (request.profile) renderServerProfile(request.profile);
@@ -2305,6 +2371,7 @@ async function watchRewardedEnergyAndStart() {
   } catch (error) {
     clearRewardedEnergyRetry();
     showToast(friendlyAdError(error), 'error');
+    trackEvent('reward_ad_failed');
   } finally {
     rewardConfirmButton.disabled = false;
     rewardCancelButton.disabled = false;
@@ -2601,6 +2668,7 @@ canvas.addEventListener('lostpointercapture',()=>{ gestureStart=null; });
 
 board=Array.from({length:ROWS},()=>Array(COLS).fill(null)); eventBoard=Array.from({length:ROWS},()=>Array(COLS).fill(null)); queue=[]; active=null; hold=null; score=0; level=1; running=false; paused=false;
 syncSettingsForm(); draw(); drawRacks(); updateStats(); updateReactor(); applyProfileTheme(); renderLocalProfile(); renderEnergy(); renderMissions(); renderShop();
+trackEvent('app_ready');
 if (!e2eMode) {
   refreshRankedAvailability();
   import('./profile-service.js')

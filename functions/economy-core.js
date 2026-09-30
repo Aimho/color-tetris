@@ -1,4 +1,5 @@
 import {
+  ATTENDANCE_REWARDS,
   DAILY_MISSIONS,
   ENERGY_MAX,
   ENERGY_REFILL_MS,
@@ -10,6 +11,7 @@ import {
 } from './shared/economy-contract.js';
 
 export {
+  ATTENDANCE_REWARDS,
   DAILY_MISSIONS,
   ENERGY_MAX,
   ENERGY_REFILL_MS,
@@ -19,6 +21,50 @@ export {
   SHOP_CATALOG,
   WEEKLY_MISSIONS,
 };
+
+export function attendanceDayDistance(previousDay, currentDay) {
+  const previous = Date.parse(`${String(previousDay || '')}T00:00:00Z`);
+  const current = Date.parse(`${String(currentDay || '')}T00:00:00Z`);
+  if (!Number.isFinite(previous) || !Number.isFinite(current)) return null;
+  return Math.round((current - previous) / (24 * 60 * 60 * 1000));
+}
+
+export function claimAttendance(progress = {}, day) {
+  const currentDay = String(day || '');
+  const previousDay = String(progress.lastClaimDay || '');
+  const distance = attendanceDayDistance(previousDay, currentDay);
+  const previousStreak = Math.min(ATTENDANCE_REWARDS.length, Math.max(0, Math.floor(Number(progress.streak) || 0)));
+  if (distance !== null && distance <= 0) {
+    return {
+      ...serializeAttendance(progress, currentDay),
+      claimed:false,
+      reward:0,
+    };
+  }
+  const streak = distance === 1 && previousStreak < ATTENDANCE_REWARDS.length
+    ? previousStreak + 1
+    : 1;
+  return {
+    streak,
+    lastClaimDay:currentDay,
+    claimedToday:true,
+    claimed:true,
+    reward:ATTENDANCE_REWARDS[streak - 1],
+    rewards:[...ATTENDANCE_REWARDS],
+  };
+}
+
+export function serializeAttendance(progress = {}, day) {
+  const currentDay = String(day || '');
+  const streak = Math.min(ATTENDANCE_REWARDS.length, Math.max(0, Math.floor(Number(progress.streak) || 0)));
+  return {
+    streak,
+    lastClaimDay:String(progress.lastClaimDay || ''),
+    claimedToday:Boolean(currentDay && progress.lastClaimDay === currentDay),
+    nextDay:attendanceDayDistance(progress.lastClaimDay, currentDay) === 1 && streak < 7 ? streak + 1 : 1,
+    rewards:[...ATTENDANCE_REWARDS],
+  };
+}
 
 export function scoreToSpark(score, earnedToday = 0) {
   const scoreReward = Math.min(
