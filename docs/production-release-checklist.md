@@ -1,6 +1,6 @@
 # COLOR BOMB 프로덕션 출시 준비 체크리스트
 
-최종 갱신: 2026-09-29  
+최종 갱신: 2026-10-02  
 대상 앱: `com.aimho.games.colorbomb`  
 기준 브랜치: `main` (`feature/version-6` 후속 출시 준비 변경 작업 중)
 
@@ -19,6 +19,7 @@
 - [x] 후속 출시 후보를 `versionCode 17`, `versionName 1.0.2`로 빌드했다.
 - [x] 1024×500 대표 이미지와 1080×1920 휴대전화 스크린샷 6장을 새 디자인으로 제작했다.
 - [x] `versionCode 17`, `versionName 1.0.2`를 2026-09-18 프로덕션 100%로 출시했다.
+- [x] 후속 업데이트를 `versionCode 18`, `versionName 1.0.3`으로 확정했다.
 
 > 정식 아이콘이나 현재 미커밋 수정 사항을 포함하려면 기존 테스트 AAB를 그대로 승격하지 말고 새 AAB를 만든다. Play에 이미 업로드된 최고 코드가 7이면 새 빌드는 `versionCode 8` 이상이어야 한다.
 
@@ -50,7 +51,7 @@
   - `VITE_ADMOB_REWARDED_AD_UNIT_ID`
   - `ADMOB_APP_ID`
   - Functions의 `ADMOB_REWARDED_AD_UNIT_ID`
-- [ ] 기존 비공개 테스트 앱과 같은 업로드 키 및 Play App Signing 연결을 사용한다.
+- [x] 기존 비공개 테스트 앱과 같은 업로드 키 및 Play App Signing 연결을 사용한다.
 - [x] 서명 비밀 4개를 로컬 전용 환경 파일로 설정하고 저장소에는 커밋하지 않는다.
   - `COLOR_BOMB_UPLOAD_STORE_FILE`
   - `COLOR_BOMB_UPLOAD_STORE_PASSWORD`
@@ -72,7 +73,7 @@
 - [x] `cd android && ./gradlew clean test lint bundleRelease`
 - [x] 생성된 AAB가 운영 AdMob 앱 ID를 사용하고 업로드 키로 서명됐는지 확인한다.
 - [x] iOS Release 시뮬레이터 빌드로 Firebase 인증·App Check·AdMob 네이티브 의존성을 확인한다.
-- [ ] Play Console의 **사전 출시 보고서**에서 충돌, ANR, 접근성, 보안 경고를 확인한다.
+- [ ] Play Console의 **사전 출시 보고서**에서 충돌, ANR, 접근성, 보안 경고를 확인한다. (AAB 업로드 뒤 확인)
 
 ## 4. 실기기 출시 후보 테스트
 
@@ -114,7 +115,7 @@
   - Sentry 진단 및 충돌 데이터
   - AdMob 광고 식별자와 광고 상호작용
   - 전송 중 암호화, 삭제 요청 방식
-- [ ] 앱 액세스: 별도 로그인 없이 익명 플레이가 가능하다는 심사 안내를 작성한다.
+- [x] 앱 액세스: 별도 로그인 없이 익명 플레이가 가능하다는 심사 안내를 작성한다.
 - [ ] 타겟층과 콘텐츠가 실제 게임 및 광고 설정과 일치한다.
 - [ ] 콘텐츠 등급 설문을 갱신하고 광고 등급도 앱 등급에 맞춘다.
 - [x] 계정 삭제 및 데이터 삭제 요청 경로를 Play Console에 입력한다.
